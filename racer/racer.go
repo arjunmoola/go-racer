@@ -1,6 +1,7 @@
 package racer
 
 import (
+	"os"
 	"fmt"
 	"slices"
 	tea "github.com/charmbracelet/bubbletea"
@@ -10,8 +11,10 @@ import (
 	"strings"
 	"errors"
 	"time"
-	//"os"
+	"math/rand/v2"
 )
+
+var rpcg = rand.New(rand.NewPCG(0,1))
 
 var (
 	ErrModelNotFound = errors.New("model not found")
@@ -22,14 +25,8 @@ var (
 	cursorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("100"))
 	charMatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#008000"))
 	charMismatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
+	highlightStyle = lipgloss.NewStyle().Background(lipgloss.Color("32"))
 )
-
-type wordList struct {
-	Name string `json:"name"`	
-	NoLazyMode bool `json:"noLazyMode"`
-	OrderedByFrequency bool `json:"orderedByFrequency"`
-	Words []string `json:"words"`
-}
 
 type List struct {
 	items []string
@@ -104,7 +101,7 @@ func  (l *List) View() string {
 			builder.WriteString(item+"\n")
 		}
 	}
-	builder.WriteString("press q to exit\n")
+	//builder.WriteString("press q to exit\n")
 	return builder.String()
 }
 
@@ -180,6 +177,12 @@ type Game struct {
 	timer timer.Model
 	finished bool
 	ticks int
+	testSize int
+	numWordsPerLine int
+	lineOffsets []int
+
+	wordDb *WordDb
+	defaultWordList *WordList
 }
 
 func NewGame() *Game {
@@ -188,6 +191,29 @@ func NewGame() *Game {
 	return &Game{
 		timer: t,
 	}
+}
+
+func (g *Game) createTest() string {
+	words := g.defaultWordList.Words
+	n := len(words)
+
+
+	test := make([]string, 0, g.testSize)
+
+	for range g.testSize {
+		idx := rand.IntN(n)
+		test = append(test, words[idx])
+	}
+
+	return strings.Join(test, " ")
+}
+
+func (g *Game) SetWordDb(wordDb *WordDb) {
+	g.wordDb = wordDb
+}
+
+func (g *Game) SetDefaultWordList(name string) {
+	g.defaultWordList = g.wordDb.wordLists[name]
 }
 
 func (g *Game) Reset() {
@@ -235,17 +261,19 @@ func (g *Game) trimByte() {
 }
 
 func (g *Game) startGame() tea.Cmd {
-	g.started = true
 	return g.timer.Init()
 }
 
 func (g *Game) stopGame() tea.Cmd {
-	g.finished = true
 	return g.timer.Stop()
 }
 
 func (g *Game) gotoMainMenu() tea.Msg {
 	return mainMenuEvent{}
+}
+
+func (g *Game) gotoStartGame() tea.Msg {
+	return startGameEvent{}
 }
 
 func (g *Game) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -257,24 +285,55 @@ func (g *Game) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return g, g.gotoMainMenu
 		case "esc":
 			return g, tea.Quit
+		case "r":
+			g.Reset()
+			return g, g.gotoStartGame
 		}
 	}
 
 	return g, nil
 }
 
+func (g *Game) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "b":
+			g.Reset()
+			return g, g.gotoMainMenu
+		case "esc":
+			return g, tea.Quit
+		case "enter":
+			g.started = true
+			g.target = g.createTest()
+			cmd = g.startGame()
+		}
+	}
+
+	var timerCmd tea.Cmd
+
+	if g.started && !g.finished {
+		g.timer, timerCmd = g.timer.Update(msg)
+	}
+
+	return g, tea.Batch(cmd, timerCmd)
+}
+
 func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if !g.started {
+		return g.updateGameNotStarted(msg)
+	}
+
 	if g.finished {
 		return g.updateGameFinished(msg)
 	}
 
 	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if !g.started {
-			cmd = g.startGame()
-			break
-		}
 		switch msg.Type {
 		case tea.KeyEsc:
 			return g, tea.Quit
@@ -285,8 +344,8 @@ func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			g.appendByte(char)
 			g.incIndex()
-
 			if len(g.target) == len(g.inputs) {
+				g.finished = true
 				cmd = g.stopGame()
 			}
 		case tea.KeyBackspace:
@@ -300,10 +359,16 @@ func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			g.appendByte(' ')
 			g.incIndex()
 			if len(g.target) == len(g.inputs) {
+				g.finished = true
 				cmd = g.stopGame()
 			}
 		}
 	case timer.TickMsg:
+		if msg.Timeout {
+			g.finished = true
+			break
+		}
+
 		if g.started && !g.finished {
 			g.ticks++
 		}
@@ -325,13 +390,16 @@ func (g *Game) View() string {
 		builder.WriteString("Results: \n\n")
 		fmt.Fprintf(builder, "time: %d s\n", g.ticks)
 		fmt.Fprintf(builder, "press b to go to main menu\n")
+		fmt.Fprintf(builder, "press r to restart\n")
 		builder.WriteString("press esc to quit\n")
 		return builder.String()
 	}
 
 	if !g.started {
-		builder.WriteString("press any key to start")
+		builder.WriteString("press enter to start\n")
+		builder.WriteString("press b to go to main menu\n")
 	} else {
+		fmt.Fprintf(builder, "name: %s\n", g.defaultWordList.Name)
 		builder.WriteString(g.timer.View())
 		builder.WriteRune('\n')
 
@@ -344,14 +412,17 @@ func (g *Game) View() string {
 			}
 		}
 
-		if end < len(g.target) {
-			builder.WriteString(g.target[end:])
+		builder.WriteString(highlightStyle.Render(string(g.target[end])))
+
+		if end+1 < len(g.target) {
+			builder.WriteString(g.target[end+1:])
 		}
+
 	}
 
 	builder.WriteString("\n\n")
 
-	builder.WriteString("press q to quit\n")
+	builder.WriteString("press esc to quit\n")
 	return builder.String()
 }
 
@@ -364,16 +435,32 @@ func NewRacer() (*Racer, error) {
 	racer := &Racer{
 		models: make(map[string]tea.Model),
 	}
+
 	options := []string{ "start", "settings", "quit" }
 	menu := NewMenu(options)
+
+	path := os.Getenv("DATA_DIR")
+
+	if path == "" {
+		return nil, ErrWordDirNotFound
+	}
+
+	wordDb, err := LoadWordDb(path)
+
+	if err != nil {
+		return nil, err
+	}
 
 	game := NewGame()
 	target := strings.Repeat("hello world", 10)
 	game.SetTarget(target)
+	game.SetWordDb(wordDb)
+	game.SetDefaultWordList("english_1k")
+	game.numWordsPerLine = 20
+	game.testSize = 500
 
 	racer.registerModel("menu", menu)
 	racer.registerModel("game", game)
-
 
 	if err := racer.SetCurrent("menu"); err != nil {
 		return nil, err
