@@ -9,6 +9,7 @@ import (
 	"time"
 	"fmt"
 	"strconv"
+	//"slices"
 )
 
 var rpcg = rand.New(rand.NewPCG(0,1))
@@ -19,7 +20,7 @@ var (
 	charMatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#008000"))
 	charMismatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
 	highlightStyle = lipgloss.NewStyle().Background(lipgloss.Color("32"))
-	viewStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).Align(lipgloss.Center)
+	viewStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).Align(lipgloss.Left).Height(3)
 )
 
 type Game struct {
@@ -35,6 +36,10 @@ type Game struct {
 	testSize int
 	numWordsPerLine int
 	lineOffsets []int
+	curLine int
+	windowSize int
+	windowOffsets []int
+	curWindow int
 
 	wordDb *WordDb
 	defaultWordList *WordList
@@ -81,6 +86,34 @@ func (g *Game) createTest() string {
 		test = append(test, words[idx])
 	}
 
+	target := strings.Join(test, " ")
+
+	lineOffsets := append(make([]int, 0), 0)
+	var windowOffsets []int
+	count := 0
+
+	for i := 0; i < len(target); i++ {
+		if target[i] == ' ' {
+			count++
+			if count == 15 {
+				count = 0
+				lineOffsets = append(lineOffsets, i+1)
+			}
+		}
+	}
+
+	for i := 0; i < len(lineOffsets); i += 3 {
+		windowOffsets = append(windowOffsets, i)
+	}
+
+
+	g.lineOffsets = lineOffsets
+	g.windowOffsets = windowOffsets
+	g.curLine = 0
+	g.curWindow = 0
+	g.windowSize = 3
+
+
 	return strings.Join(test, " ")
 }
 
@@ -113,12 +146,28 @@ func (g *Game) Init() tea.Cmd {
 func (g *Game) incIndex() {
 	if g.idx+1 < len(g.target) {
 		g.idx++
+
+		if g.curLine+1 < len(g.lineOffsets) && g.idx == g.lineOffsets[g.curLine+1] {
+			g.curLine++
+
+			if g.curWindow+1 < len(g.windowOffsets) && g.lineOffsets[g.curLine] == g.lineOffsets[g.windowOffsets[g.curWindow]] {
+				g.curWindow++
+			}
+		}
 	}
 }
 
 func (g *Game) decIndex() {
 	if g.idx-1 > -1 {
 		g.idx--
+
+		if g.curLine-1 > -1 && g.idx == g.lineOffsets[g.curLine-1] {
+			g.curLine--
+
+			if g.curWindow-1 > -1 && g.lineOffsets[g.curLine] == g.lineOffsets[g.windowOffsets[g.curWindow]] {
+				g.curWindow--
+			}
+		}
 	}
 }
 
@@ -277,27 +326,29 @@ func (g *Game) View() string {
 		builder.WriteString(g.timer.View())
 		builder.WriteRune('\n')
 
-		end := min(len(g.target), len(g.inputs))
+		//end := min(len(g.target), len(g.inputs))
 
-		var s string
-		for i := range end {
-			if g.target[i] == g.inputs[i] {
-				s += charMatchStyle.Render(string(g.inputs[i]))
-				//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
-			} else {
-				s += charMismatchStyle.Render(string(g.inputs[i]))
-				//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
-			}
-		}
+		//var s string
+		//for i := range end {
+		//	if g.target[i] == g.inputs[i] {
+		//		s += charMatchStyle.Render(string(g.inputs[i]))
+		//		//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
+		//	} else {
+		//		s += charMismatchStyle.Render(string(g.inputs[i]))
+		//		//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
+		//	}
+		//}
 
-		s += highlightStyle.Render(string(g.target[end]))
+		//s += highlightStyle.Render(string(g.target[end]))
 
-		//builder.WriteString(highlightStyle.Render(string(g.target[end])))
+		////builder.WriteString(highlightStyle.Render(string(g.target[end])))
 
-		if end+1 < len(g.target) {
-			//builder.WriteString(g.target[end+1:])
-			s += string(g.target[end+1:])
-		}
+		//if end+1 < len(g.target) {
+		//	//builder.WriteString(g.target[end+1:])
+		//	s += string(g.target[end+1:])
+		//}
+
+		s := g.render()
 
 		builder.WriteString(viewStyle.Render(s))
 
@@ -309,6 +360,59 @@ func (g *Game) View() string {
 	return builder.String()
 }
 
-func (g *Game) updateSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
-	return nil, nil
+func (g *Game) render() string {
+	leftIdx := g.curWindow
+	rightIdx := 0
+
+	if leftIdx+1 < len(g.windowOffsets) {
+		rightIdx = g.lineOffsets[g.windowOffsets[leftIdx+1]]
+	}
+
+	lineOffsets := g.lineOffsets
+
+	lineIdx := g.curLine
+	end := g.idx
+
+	var s string
+	for i := leftIdx; i < end; i++ {
+		if g.target[i] == g.inputs[i] {
+			if g.lineOffsets[lineIdx] == i+1 && g.target[i] == ' ' {
+				s += charMatchStyle.Render("\n")
+				if lineIdx+1 < len(lineOffsets) {
+					lineIdx++
+				}
+			} else{
+				s += charMatchStyle.Render(string(g.inputs[i]))
+			}
+			//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
+		} else {
+			s += charMismatchStyle.Render(string(g.inputs[i]))
+			//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
+		}
+	}
+
+	s += highlightStyle.Render(string(g.target[end]))
+
+	if end == lineOffsets[lineIdx]-1 {
+		s += "\n"
+		if lineIdx+1 < len(lineOffsets) {
+			lineIdx++
+		}
+	}
+
+	//builder.WriteString(highlightStyle.Render(string(g.target[end])))
+
+	for i := end+1; i < rightIdx; i++ {
+		if i+1 == lineOffsets[lineIdx] {
+			s += "\n"
+			if lineIdx+1 < len(lineOffsets) {
+				lineIdx++
+			}
+		} else {
+			s += string(g.target[i])
+		}
+
+	}
+
+	return s
 }
