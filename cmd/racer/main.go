@@ -11,7 +11,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	racer, err := racer.NewRacer()
+	racer, err := racer.NewRacerModel()
 
 	if err != nil {
 		log.Fatal(err)
