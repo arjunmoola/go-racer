@@ -345,28 +345,6 @@ func (g *Game) View() string {
 		builder.WriteString(g.timer.View())
 		builder.WriteRune('\n')
 
-		//end := min(len(g.target), len(g.inputs))
-
-		//var s string
-		//for i := range end {
-		//	if g.target[i] == g.inputs[i] {
-		//		s += charMatchStyle.Render(string(g.inputs[i]))
-		//		//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
-		//	} else {
-		//		s += charMismatchStyle.Render(string(g.inputs[i]))
-		//		//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
-		//	}
-		//}
-
-		//s += highlightStyle.Render(string(g.target[end]))
-
-		////builder.WriteString(highlightStyle.Render(string(g.target[end])))
-
-		//if end+1 < len(g.target) {
-		//	//builder.WriteString(g.target[end+1:])
-		//	s += string(g.target[end+1:])
-		//}
-
 		s := g.render()
 
 		builder.WriteString(viewStyle.Render(s))
@@ -400,24 +378,8 @@ var (
 func renderLineOffsets(lineOffsets []int, curIndex int, windowIdx int, windowSize int) string {
 	builder := &strings.Builder{}
 
-	//for i, off := range lineOffsets {
-	//	num := strconv.Itoa(off)
-	//	if i == curIndex {
-	//		builder.WriteString(lineOffsetCursorStyle.Render(num))
-	//	} else {
-	//		builder.WriteString(defaultStyle.Render(num))
-	//	}
-	//	builder.WriteByte(' ')
-	//}
-
-	//builder.WriteRune('\n')
-	//builder.WriteRune('\n')
-
-
 	for i := range windowIdx {
 		num := strconv.Itoa(lineOffsets[i])
-		//leftStr +=  defaultStyle.Render(num)
-		//leftStr += defaultStyle.Render(" ")
 		builder.WriteString(defaultStyle.Render(num))
 		builder.WriteString(" ")
 	}
@@ -437,38 +399,16 @@ func renderLineOffsets(lineOffsets []int, curIndex int, windowIdx int, windowSiz
 		windowStr += " "
 	}
 
-
-	//builder.WriteString(windowStyle.Render(windowStr))
-	//builder.WriteString(underlineStyle.Render(windowStr))
-
 	windowStr = windowStyle.Render(windowStr)
-
-	//rightStr := ""
 
 	for i := windowIdx+windowSize; i < len(lineOffsets); i++ {
 		num := strconv.Itoa(lineOffsets[i])
-		//rightStr += defaultStyle.Render(num)
-		//rightStr += defaultStyle.Render(" ")
 		builder.WriteString(defaultStyle.Render(num))
 		builder.WriteString(" ")
 	}
 
 	rightStr := builder.String()
 	builder.Reset()
-
-	//var strs []string
-
-	//if leftStr != "" {
-	//	strs = append(strs, leftStr)
-	//}
-
-	//strs = append(strs, windowStr)
-
-	//if rightStr != "" {
-	//	strs = append(strs, rightStr)
-	//}
-
-
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, leftStr, windowStr, rightStr)
 }
