@@ -58,7 +58,7 @@ func NewRacerModel() (*RacerModel, error) {
 	game := NewGame()
 	game.racer = model
 	game.SetWordDb(wordDb)
-	game.SetDefaultWordList("english_1k")
+	game.SetDefaultWordList("english")
 	game.numWordsPerLine = 20
 	game.testSize = 500
 
@@ -124,10 +124,11 @@ func (r *RacerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
-			return r, tea.Quit
+			if r.State() != GAME {
+				return r, tea.Quit
+			}
 		}
 	}
-
 	return r.currentUpdateFunc(msg)
 
 }
@@ -201,7 +202,9 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyEsc:
-			return g, tea.Quit
+			g.Reset()
+			r.SetState(MAIN_MENU)
+			return r, nil
 		case tea.KeyRunes:
 			runes := msg.Runes
 			g.charIdx = g.idx

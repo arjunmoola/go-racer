@@ -9,7 +9,7 @@ import (
 	"time"
 	"fmt"
 	"strconv"
-	//"slices"
+	"slices"
 )
 
 var rpcg = rand.New(rand.NewPCG(0,1))
@@ -40,6 +40,11 @@ type Game struct {
 	windowSize int
 	windowOffsets []int
 	curWindow int
+	leftIdx int
+	leftLineIdx int
+	rightIdx int
+	rightLineIdx int
+	bsearchIdx int
 
 	wordDb *WordDb
 	defaultWordList *WordList
@@ -70,7 +75,7 @@ func (g *Game) createTest() string {
 	var dur int64
 
 	if selectedTime == "" {
-		dur = 30
+		dur = 120
 	} else {
 		dur, _ = strconv.ParseInt(selectedTime, 10, 64)
 	}
@@ -89,7 +94,6 @@ func (g *Game) createTest() string {
 	target := strings.Join(test, " ")
 
 	lineOffsets := append(make([]int, 0), 0)
-	var windowOffsets []int
 	count := 0
 
 	for i := 0; i < len(target); i++ {
@@ -102,17 +106,17 @@ func (g *Game) createTest() string {
 		}
 	}
 
-	for i := 0; i < len(lineOffsets); i += 3 {
-		windowOffsets = append(windowOffsets, i)
-	}
-
-
 	g.lineOffsets = lineOffsets
-	g.windowOffsets = windowOffsets
 	g.curLine = 0
 	g.curWindow = 0
 	g.windowSize = 3
+	g.leftIdx = 0
 
+	if g.curWindow + g.windowSize < len(g.lineOffsets) {
+		g.rightIdx = g.lineOffsets[g.curWindow+g.windowSize]
+	} else {
+		g.rightIdx = len(target)
+	}
 
 	return strings.Join(test, " ")
 }
@@ -149,9 +153,14 @@ func (g *Game) incIndex() {
 
 		if g.curLine+1 < len(g.lineOffsets) && g.idx == g.lineOffsets[g.curLine+1] {
 			g.curLine++
-
-			if g.curWindow+1 < len(g.windowOffsets) && g.lineOffsets[g.curLine] == g.lineOffsets[g.windowOffsets[g.curWindow]] {
-				g.curWindow++
+			g.curWindow = (g.curLine/g.windowSize)*g.windowSize
+			if g.curLine % g.windowSize == 0 {
+				g.leftIdx = g.rightIdx
+				if g.curWindow+g.windowSize < len(g.target) {
+					g.rightIdx = g.lineOffsets[g.curWindow+g.windowSize]
+				} else {
+					g.rightIdx = len(g.target)
+				}
 			}
 		}
 	}
@@ -161,12 +170,22 @@ func (g *Game) decIndex() {
 	if g.idx-1 > -1 {
 		g.idx--
 
-		if g.curLine-1 > -1 && g.idx == g.lineOffsets[g.curLine-1] {
-			g.curLine--
+		idxLine, _ := slices.BinarySearch(g.lineOffsets, g.idx)
+		g.bsearchIdx = idxLine
 
-			if g.curWindow-1 > -1 && g.lineOffsets[g.curLine] == g.lineOffsets[g.windowOffsets[g.curWindow]] {
-				g.curWindow--
+		if g.curLine-1 > -1 && idxLine == g.curLine-1 {
+			g.curLine--
+			g.curWindow = (g.curLine/g.windowSize)*g.windowSize
+
+			if g.curLine % g.windowSize == 2 {
+				g.rightIdx = g.leftIdx
+				if g.curWindow-g.windowSize > -1 {
+					g.leftIdx = g.lineOffsets[g.curWindow-g.windowSize]
+				} else {
+					g.leftIdx = 0
+				}
 			}
+
 		}
 	}
 }
@@ -351,7 +370,18 @@ func (g *Game) View() string {
 		s := g.render()
 
 		builder.WriteString(viewStyle.Render(s))
-
+		builder.WriteRune('\n')
+		fmt.Fprintf(builder, "ids: %d\n", g.idx)
+		fmt.Fprintf(builder, "currentLine: %d\n", g.curLine)
+		fmt.Fprintf(builder, "currentLineOffset: %d\n", g.lineOffsets[g.curLine])
+		fmt.Fprintf(builder, "bsearchIdx: %d\n", g.bsearchIdx)
+		fmt.Fprintf(builder, "currentWindow: %d\n", g.curWindow)
+		fmt.Fprintf(builder, "leftIdx: %d rightIdx: %d\n", g.leftIdx, g.rightIdx)
+		fmt.Fprintf(builder, "mod: %d\n", g.curLine % g.windowSize)
+		fmt.Fprintf(builder, "number of windows: %d\n", len(g.lineOffsets)/3)
+		fmt.Fprintf(builder, "number of lines: %d\n", len(g.lineOffsets))
+		builder.WriteString(renderLineOffsets(g.lineOffsets, g.curLine, g.curWindow, g.windowSize))
+		//fmt.Fprintf(builder, "lineOffsets: %v\n", renderLineOffsets(g.lineOffsets, g.curLine, g.curWindow, g.windowSize))
 	}
 
 	builder.WriteString("\n\n")
@@ -360,17 +390,96 @@ func (g *Game) View() string {
 	return builder.String()
 }
 
-func (g *Game) render() string {
-	leftIdx := g.curWindow
-	rightIdx := 0
+var (
+	defaultStyle = lipgloss.NewStyle()
+	lineOffsetCursorStyle = defaultStyle.Foreground(lipgloss.Color("200"))
+	windowStyle = defaultStyle.BorderStyle(lipgloss.NormalBorder()).Height(1)
+	underlineStyle = defaultStyle.Underline(true).UnderlineSpaces(true)
+)
 
-	if leftIdx+1 < len(g.windowOffsets) {
-		rightIdx = g.lineOffsets[g.windowOffsets[leftIdx+1]]
+func renderLineOffsets(lineOffsets []int, curIndex int, windowIdx int, windowSize int) string {
+	builder := &strings.Builder{}
+
+	//for i, off := range lineOffsets {
+	//	num := strconv.Itoa(off)
+	//	if i == curIndex {
+	//		builder.WriteString(lineOffsetCursorStyle.Render(num))
+	//	} else {
+	//		builder.WriteString(defaultStyle.Render(num))
+	//	}
+	//	builder.WriteByte(' ')
+	//}
+
+	//builder.WriteRune('\n')
+	//builder.WriteRune('\n')
+
+
+	for i := range windowIdx {
+		num := strconv.Itoa(lineOffsets[i])
+		//leftStr +=  defaultStyle.Render(num)
+		//leftStr += defaultStyle.Render(" ")
+		builder.WriteString(defaultStyle.Render(num))
+		builder.WriteString(" ")
 	}
 
-	lineOffsets := g.lineOffsets
+	leftStr := builder.String()
+	builder.Reset()
 
-	lineIdx := g.curLine
+	windowStr := ""
+
+	for i := windowIdx; i < len(lineOffsets) && i < windowIdx+windowSize; i++ {
+		num := strconv.Itoa(lineOffsets[i])
+		if i == curIndex {
+			windowStr += lineOffsetCursorStyle.Render(num)
+		} else {
+			windowStr += defaultStyle.Render(num)
+		}
+		windowStr += " "
+	}
+
+
+	//builder.WriteString(windowStyle.Render(windowStr))
+	//builder.WriteString(underlineStyle.Render(windowStr))
+
+	windowStr = windowStyle.Render(windowStr)
+
+	//rightStr := ""
+
+	for i := windowIdx+windowSize; i < len(lineOffsets); i++ {
+		num := strconv.Itoa(lineOffsets[i])
+		//rightStr += defaultStyle.Render(num)
+		//rightStr += defaultStyle.Render(" ")
+		builder.WriteString(defaultStyle.Render(num))
+		builder.WriteString(" ")
+	}
+
+	rightStr := builder.String()
+	builder.Reset()
+
+	//var strs []string
+
+	//if leftStr != "" {
+	//	strs = append(strs, leftStr)
+	//}
+
+	//strs = append(strs, windowStr)
+
+	//if rightStr != "" {
+	//	strs = append(strs, rightStr)
+	//}
+
+
+
+	return lipgloss.JoinHorizontal(lipgloss.Center, leftStr, windowStr, rightStr)
+}
+
+func (g *Game) render() string {
+	lineOffsets := g.lineOffsets
+	leftIdx := g.leftIdx
+	rightIdx := g.rightIdx
+	windowIdx := g.curWindow
+
+	lineIdx := windowIdx+1
 	end := g.idx
 
 	var s string
