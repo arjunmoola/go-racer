@@ -46,6 +46,10 @@ type Game struct {
 	rightIdx int
 	rightLineIdx int
 
+	sampleIdx int
+	prevSampleIdx int
+	samples []string
+
 	wordDb *WordDb
 	defaultWordList *WordList
 }
@@ -111,6 +115,8 @@ func (g *Game) createTest() {
 	g.curWindow = 0
 	g.windowSize = 3
 	g.leftIdx = 0
+	g.sampleIdx = 0
+	g.prevSampleIdx = 0
 
 	if g.curWindow + g.windowSize < len(g.lineOffsets) {
 		g.rightIdx = g.lineOffsets[g.curWindow+g.windowSize]
@@ -145,6 +151,20 @@ func (g *Game) SetTarget(target string) {
 
 func (g *Game) Init() tea.Cmd {
 	return nil
+}
+
+func (g *Game) updateSampleIdx() {
+	g.prevSampleIdx = g.sampleIdx
+	g.sampleIdx = g.idx
+}
+
+func (g *Game) sample() {
+	if g.idx >= g.prevSampleIdx {
+		s := string(g.target[g.prevSampleIdx:g.idx])
+		g.samples = append(g.samples, s)
+		g.updateSampleIdx()
+
+	}
 }
 
 func (g *Game) incIndex() {
