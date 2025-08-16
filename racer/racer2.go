@@ -6,6 +6,7 @@ import (
 	"strings"
 	"os"
 	"fmt"
+	"time"
 )
 
 type RacerState int
@@ -92,7 +93,9 @@ func NewRacerModel() (*RacerModel, error) {
 	settingOptions := [][]string{ wordBank, times }
 
 	settings := NewGameSettings(optionNames, settingOptions)
+	settings.FromConfig(config)
 	model.settings = settings
+	settings.model = model
 
 	model.registerStateUpdateFunc(MAIN_MENU, model.updateMainMenu)
 	model.registerStateViewFunc(MAIN_MENU, model.viewMainMenu)
@@ -332,10 +335,28 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			settings.NextSettingsOption()
 		case "enter":
 			settings.SelectSettingsOption()
-			
+		case "s":
+			return r, settings.SaveSettings
 		case "b":
+			settings.saveSuccess = false
+			settings.err = nil
 			r.SetState(MAIN_MENU)
 		}
+	case gameSettingsSuccess:
+		settings.err = nil
+		settings.saveSuccess = true
+		return r, tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
+			return clearGameSettingsMsg{}
+		})
+	case gameSettingsErr:
+		settings.saveSuccess = false
+		settings.err = msg
+		return r, tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
+			return clearGameSettingsMsg{}
+		})
+	case clearGameSettingsMsg:
+		settings.err = nil
+		settings.saveSuccess = false
 	}
 
 	return r, nil

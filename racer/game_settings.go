@@ -1,8 +1,12 @@
 package racer
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"strings"
+	"strconv"
+	"os"
+	"fmt"
 )
 
 var (
@@ -24,18 +28,9 @@ func (o *settingsOption) render() string {
 	items := make([]string, 0, len(o.l.items))
 
 	for i, item := range o.l.items {
-		//var s string
-		//switch i {
-		//case o.l.cursor:
-		//	s = currentSettingsOptionItemStyle.Render(item)
-		//case o.l.selectedIdx:
-		//	s = selectedSettingsOptionItemStyle.Render(item)
-		//default:
-		//	s = settingsOptionItemStyle.Render(item)
-		//}
 
 		var f func(...string) string
-		
+
 		f = settingsOptionItemStyle.Render
 
 		if !o.focus {
@@ -76,8 +71,10 @@ type GameSettings struct {
 	selectedIdx int
 	model *RacerModel
 	inFocus bool
-
 	selectedOptions map[string]string
+
+	saveSuccess bool
+	err error
 }
 
 func (s *GameSettings) Next() {
@@ -122,6 +119,58 @@ func (s *GameSettings) SelectSettingsOption() {
 	s.selectedOptions[opt.name] = opt.l.selectedValue
 }
 
+type gameSettingsErr error
+type gameSettingsSuccess struct{}
+type clearGameSettingsMsg struct{}
+
+func (s *GameSettings) SaveSettings() tea.Msg {
+	config := s.model.config
+	path := os.ExpandEnv(defaultPath)
+
+	words := s.selectedOptions["words"]
+	t := s.selectedOptions["time"]
+
+	tval, _ := strconv.ParseInt(t, 10, 64)
+
+	config.words = words
+	config.time = int(tval)
+
+	file, err := os.Create(path)
+
+	if err != nil {
+		return gameSettingsErr(err)
+	}
+
+	defer file.Close()
+
+	if err := config.write(file); err != nil {
+		return gameSettingsErr(err)
+	}
+
+	return gameSettingsSuccess{}
+}
+
+func (s *GameSettings) SetSelectedOption(name, option string) {
+	for _, opt := range s.options {
+		if opt.name == name {
+			for i, optName := range opt.l.items {
+				if optName == option {
+					opt.l.selectedIdx = i
+					opt.l.selectedValue = optName
+					s.selectedOptions[name] = option
+					return
+				}
+			}
+		}
+	}
+}
+
+func (s *GameSettings) FromConfig(config *Config) {
+	t := strconv.Itoa(config.time)
+	s.SetSelectedOption("time", t)
+	s.SetSelectedOption("words", config.words)
+}
+
 func NewGameSettings(optionNames []string, options [][]string) *GameSettings {
 	settingsOptions := make([]*settingsOption, 0, len(optionNames))
 
@@ -159,6 +208,15 @@ func (s *GameSettings) render() string {
 	for _, opt := range s.options {
 		builder.WriteString(opt.render())
 		builder.WriteByte('\n')
+	}
+
+	if s.saveSuccess {
+		builder.WriteString("settings saved to .go-racer.conf\n")
+	}
+
+	if s.err != nil {
+		builder.WriteString("unable to save to .go-racer.conf\n")
+		fmt.Fprintf(builder, "got: %v\n", s.err)
 	}
 
 	builder.WriteString("press esc to exit\n")
