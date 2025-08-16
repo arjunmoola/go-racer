@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"os"
 	"fmt"
+	"time"
 )
 
 var (
@@ -148,6 +149,12 @@ func (s *GameSettings) SaveSettings() tea.Msg {
 	}
 
 	return gameSettingsSuccess{}
+}
+
+func ClearGameSettingsMessage() tea.Cmd {
+	return tea.Tick(3*time.Second, func(_ time.Time) tea.Msg {
+		return clearGameSettingsMsg{}
+	})
 }
 
 func (s *GameSettings) SetSelectedOption(name, option string) {

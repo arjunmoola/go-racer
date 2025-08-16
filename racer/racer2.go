@@ -6,7 +6,6 @@ import (
 	"strings"
 	"os"
 	"fmt"
-	"time"
 )
 
 type RacerState int
@@ -345,15 +344,11 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gameSettingsSuccess:
 		settings.err = nil
 		settings.saveSuccess = true
-		return r, tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
-			return clearGameSettingsMsg{}
-		})
+		return r, ClearGameSettingsMessage()
 	case gameSettingsErr:
 		settings.saveSuccess = false
 		settings.err = msg
-		return r, tea.Tick(2*time.Second, func(_ time.Time) tea.Msg {
-			return clearGameSettingsMsg{}
-		})
+		return r, ClearGameSettingsMessage()
 	case clearGameSettingsMsg:
 		settings.err = nil
 		settings.saveSuccess = false
