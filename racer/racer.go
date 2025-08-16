@@ -6,6 +6,7 @@ import (
 	"strings"
 	"os"
 	"fmt"
+	"slices"
 )
 
 type RacerState int
@@ -59,7 +60,7 @@ func NewRacerModel() (*RacerModel, error) {
 	_, err = os.Lstat(path)
 
 	if err != nil {
-		return nil, fmt.Errorf("invalid data path")
+		return nil, fmt.Errorf("invalid data path %s", path)
 	}
 
 	wordDb, err := LoadWordDb(path)
@@ -72,7 +73,7 @@ func NewRacerModel() (*RacerModel, error) {
 	game.debug = false
 	game.racer = model
 	game.SetWordDb(wordDb)
-	game.SetDefaultWordList(config.words)
+	game.SetDefaultWordList(config.Words)
 	game.numWordsPerLine = 20
 	game.testSize = 500
 
@@ -86,6 +87,8 @@ func NewRacerModel() (*RacerModel, error) {
 	for name := range wordDb.wordLists {
 		wordBank = append(wordBank, name)
 	}
+
+	slices.Sort(wordBank)
 
 	times := []string{"15", "25",  "30", "60", "120" }
 

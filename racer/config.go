@@ -3,11 +3,9 @@ package racer
 import (
 	"io"
 	"os"
-	"bufio"
-	"strings"
 	"errors"
-	"strconv"
-	"fmt"
+	"encoding/json"
+	"path/filepath"
 )
 
 var (
@@ -15,22 +13,21 @@ var (
 	ErrInvalidConfigKey = errors.New("invalid config key")
 )
 
-const (
-	defaultPath = "$HOME/.go-racer.conf"
-	defaultDataDir = "$HOME/.local/share/go-racer/data"
+var (
+	defaultConfigDir = os.ExpandEnv("$HOME/.go-racer")
+	defaultConfigPath = filepath.Join(defaultConfigDir, "config.json")
+	defaultDataDir = filepath.Join(defaultConfigDir, "data")
 )
 
 type Config struct {
-	words string
-	time int
-	mode string
-	data string
+	Words string `json:"words"`
+	Time int `json:"time"`
+	Mode string `json:"mode"`
+	data string `json:"-"`
 }
 
 func ReadConfigFile() (*Config, error) {
-	path := "$HOME/.go-racer.conf"
-
-	file, err := os.Open(os.ExpandEnv(path))
+	file, err := os.Open(defaultConfigPath)
 
 	if err != nil {
 		return nil, err
@@ -38,71 +35,27 @@ func ReadConfigFile() (*Config, error) {
 
 	defer file.Close()
 
-	return parseConfig(file)
-}
-
-func parseConfig(r io.Reader) (*Config, error) {
-	scanner := bufio.NewScanner(r)
-	scanner.Split(bufio.ScanLines)
-
-
 	config := &Config{}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		parts := strings.Split(line, ":")
-
-		if len(parts) != 2 {
-			return nil, ErrInvalidConfig
-		}
-
-		key, value := parts[0], parts[1]
-		value = strings.TrimSpace(value)
-
-		switch key {
-		case "words":
-			config.words = value
-		case "time":
-			v, _ := strconv.ParseInt(value, 10, 64)
-			config.time = int(v)
-		case "mode":
-			config.mode = value
-		case "data":
-			config.data = value
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
+	if err := unmarshalConfig(file, config); err != nil {
 		return nil, err
 	}
+
+	config.data = defaultDataDir
 
 	return config, nil
 }
 
+func unmarshalConfig(r io.Reader, v any) error {
+	return json.NewDecoder(r).Decode(v)
+}
+
 func (c *Config) write(w io.Writer) error {
-	if c.words != "" {
-		fmt.Fprintf(w, "words:%s\n", c.words)
-	} else {
-		fmt.Fprintln(w, "words:english")
-	}
-
-	if c.time != 0 {
-		fmt.Fprintf(w, "time:%d\n", c.time)
-	} else{
-		fmt.Fprintln(w, "time:30")
-	}
-
-	if c.data != "" {
-		fmt.Fprintf(w, "data:%s\n", c.data)
-	} else {
-		fmt.Fprintln(w, defaultDataDir)
-	}
-
-	return nil
+	return json.NewEncoder(w).Encode(c)
 }
 
 func (c *Config) Save() error {
-	file, err := os.Create(os.ExpandEnv(defaultPath))
+	file, err := os.Create(defaultConfigPath)
 
 	if err != nil {
 		return err
@@ -113,38 +66,54 @@ func (c *Config) Save() error {
 	return c.write(file)
 }
 
+func DefaultConfig() *Config {
+	return &Config{
+		Words: "english",
+		Time: 30,
+		data: defaultDataDir,
+	}
+}
+
+func initializeConfigDir() (*Config, error) {
+	if err := os.Mkdir(defaultConfigDir, 0777); err != nil {
+		return nil, err
+	}
+
+	config := DefaultConfig()
+
+	file, err := os.Create(defaultConfigPath)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer file.Close()
+
+	if err := config.write(file); err != nil {
+		return nil, err
+	}
+
+	if err := os.Mkdir(defaultDataDir, 0777); err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
 func ReadOrCreateConfig() (*Config, error) {
-	_, err := os.Lstat(os.ExpandEnv(defaultPath))
-	fileNotFound := false
+	var dirNotFound bool
+	_, err := os.Lstat(defaultConfigDir)
 
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			fileNotFound = true
+			dirNotFound = true
 		} else {
 			return nil, err
 		}
 	}
 
-	if fileNotFound {
-		config := &Config{
-			words: "english",
-			time: 30,
-			data: defaultDataDir,
-		}
-
-		file, err := os.Create(os.ExpandEnv(defaultPath))
-		
-		if err != nil {
-			return nil, err
-		}
-
-		defer file.Close()
-
-		if err := config.write(file); err != nil {
-			return nil, err
-		}
-
-		return config, nil
+	if dirNotFound {
+		return initializeConfigDir()
 	}
 
 	return ReadConfigFile()

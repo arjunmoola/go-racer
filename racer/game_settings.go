@@ -133,15 +133,15 @@ type clearGameSettingsMsg struct{}
 
 func (s *GameSettings) SaveSettings() tea.Msg {
 	config := s.model.config
-	path := os.ExpandEnv(defaultPath)
+	path := os.ExpandEnv(defaultConfigPath)
 
 	words := s.selectedOptions["words"]
 	t := s.selectedOptions["time"]
 
 	tval, _ := strconv.ParseInt(t, 10, 64)
 
-	config.words = words
-	config.time = int(tval)
+	config.Words = words
+	config.Time = int(tval)
 
 	file, err := os.Create(path)
 
@@ -180,9 +180,9 @@ func (s *GameSettings) SetSelectedOption(name, option string) {
 }
 
 func (s *GameSettings) FromConfig(config *Config) {
-	t := strconv.Itoa(config.time)
+	t := strconv.Itoa(config.Time)
 	s.SetSelectedOption("time", t)
-	s.SetSelectedOption("words", config.words)
+	s.SetSelectedOption("words", config.Words)
 }
 
 func (s *GameSettings) resetSaveState() {
@@ -197,7 +197,6 @@ func NewGameSettings(optionNames []string, options [][]string) *GameSettings {
 	for i, name := range optionNames {
 		l := NewList()
 		l.SetItems(options[i])
-
 		option := &settingsOption{
 			name: name,
 			l: l,
@@ -239,11 +238,11 @@ func (s *GameSettings) render() string {
 	}
 
 	if s.saveSuccess {
-		builder.WriteString("settings saved to .go-racer.conf\n")
+		builder.WriteString("settings saved to .go-racer/config.json\n")
 	}
 
 	if s.err != nil {
-		builder.WriteString("unable to save to .go-racer.conf\n")
+		builder.WriteString("unable to save to disk\n")
 		fmt.Fprintf(builder, "got: %v\n", s.err)
 	}
 
