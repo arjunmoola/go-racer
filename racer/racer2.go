@@ -5,6 +5,7 @@ import (
 	"github.com/charmbracelet/bubbles/timer"
 	"strings"
 	"os"
+	"fmt"
 )
 
 type RacerState int
@@ -31,6 +32,7 @@ type RacerModel struct {
 
 	game *Game
 	settings *GameSettings
+	config *Config
 }
 
 func NewRacerModel() (*RacerModel, error) {
@@ -43,10 +45,21 @@ func NewRacerModel() (*RacerModel, error) {
 	menu := &List{}
 	menu.SetItems(options)
 
-	path := os.Getenv("DATA_DIR")
+	config, err := ReadOrCreateConfig()
 
-	if path == "" {
-		return nil, ErrWordDirNotFound
+	if err != nil {
+		return nil, err
+	}
+
+	model.config = config
+
+	path := config.data
+	path = os.ExpandEnv(path)
+
+	_, err = os.Lstat(path)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid data path")
 	}
 
 	wordDb, err := LoadWordDb(path)
@@ -56,9 +69,10 @@ func NewRacerModel() (*RacerModel, error) {
 	}
 
 	game := NewGame()
+	game.debug = false
 	game.racer = model
 	game.SetWordDb(wordDb)
-	game.SetDefaultWordList("english")
+	game.SetDefaultWordList(config.words)
 	game.numWordsPerLine = 20
 	game.testSize = 500
 
