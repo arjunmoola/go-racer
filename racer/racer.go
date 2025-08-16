@@ -139,12 +139,11 @@ func (r *RacerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg :=  msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc":
-			if r.State() != GAME {
-				return r, tea.Quit
-			}
+		case "ctrl+c":
+			return r, tea.Quit
 		}
 	}
+
 	return r.currentUpdateFunc(msg)
 
 }
@@ -166,7 +165,7 @@ func (r *RacerModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q":
+		case "esc":
 			return r, tea.Quit
 		case "j":
 			menu.Next()
@@ -274,15 +273,13 @@ func (r *RacerModel) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "b":
+		case "esc":
 			g.Reset()
 			r.SetState(MAIN_MENU)
 			return r, nil
-		case "esc":
-			return r, tea.Quit
 		case "enter":
 			g.started = true
-			g.target = g.createTest()
+			g.createTest()
 			cmd = g.startGame()
 		}
 	}
@@ -298,21 +295,32 @@ func (r *RacerModel) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (r *RacerModel) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
 	g := r.game
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "b":
+		case "esc":
 			g.Reset()
 			r.SetState(MAIN_MENU)
-		case "esc":
-			return g, tea.Quit
 		case "r":
 			g.Reset()
 			r.SetState(GAME)
+		case "enter":
+			g.Reset()
+			r.SetState(GAME)
+			g.started = true
+			g.createTest()
+			cmd = g.startGame()
 		}
 	}
 
-	return r, nil
+	var timerCmd tea.Cmd
+
+	if g.started && !g.finished {
+		g.timer, timerCmd = g.timer.Update(msg)
+	}
+
+	return r, tea.Batch(cmd, timerCmd)
 }
 
 func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -335,23 +343,26 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			settings.SelectSettingsOption()
 		case "s":
-			return r, settings.SaveSettings
-		case "b":
+			if settings.showSave {
+				return r, settings.SaveSettings
+			}
+		case "esc":
 			settings.saveSuccess = false
 			settings.err = nil
 			r.SetState(MAIN_MENU)
 		}
 	case gameSettingsSuccess:
-		settings.err = nil
 		settings.saveSuccess = true
+		settings.err = nil
+		settings.showSave = false
 		return r, ClearGameSettingsMessage()
 	case gameSettingsErr:
 		settings.saveSuccess = false
 		settings.err = msg
+		settings.showSave = false
 		return r, ClearGameSettingsMessage()
 	case clearGameSettingsMsg:
-		settings.err = nil
-		settings.saveSuccess = false
+		settings.resetSaveState()
 	}
 
 	return r, nil

@@ -74,6 +74,7 @@ type GameSettings struct {
 	inFocus bool
 	selectedOptions map[string]string
 
+	showSave bool
 	saveSuccess bool
 	err error
 }
@@ -116,7 +117,13 @@ func (s *GameSettings) PrevSettingsOption() {
 
 func (s *GameSettings) SelectSettingsOption() {
 	opt := s.options[s.selectedIdx]
+	currentSelectedValue := opt.l.SelectedValue()
 	opt.l.SetSelection()
+
+	if opt.l.SelectedValue() != currentSelectedValue {
+		s.showSave = true
+	}
+
 	s.selectedOptions[opt.name] = opt.l.selectedValue
 }
 
@@ -152,7 +159,7 @@ func (s *GameSettings) SaveSettings() tea.Msg {
 }
 
 func ClearGameSettingsMessage() tea.Cmd {
-	return tea.Tick(3*time.Second, func(_ time.Time) tea.Msg {
+	return tea.Tick(1*time.Second, func(_ time.Time) tea.Msg {
 		return clearGameSettingsMsg{}
 	})
 }
@@ -176,6 +183,12 @@ func (s *GameSettings) FromConfig(config *Config) {
 	t := strconv.Itoa(config.time)
 	s.SetSelectedOption("time", t)
 	s.SetSelectedOption("words", config.words)
+}
+
+func (s *GameSettings) resetSaveState() {
+	s.showSave = false
+	s.saveSuccess = false
+	s.err = nil
 }
 
 func NewGameSettings(optionNames []string, options [][]string) *GameSettings {
@@ -217,6 +230,14 @@ func (s *GameSettings) render() string {
 		builder.WriteByte('\n')
 	}
 
+	builder.WriteString("press esc to go back to main menu\n")
+	builder.WriteString("press ctrl+c to exit\n")
+	builder.WriteRune('\n')
+
+	if s.showSave {
+		builder.WriteString("press s to save settings to disk\n")
+	}
+
 	if s.saveSuccess {
 		builder.WriteString("settings saved to .go-racer.conf\n")
 	}
@@ -225,9 +246,6 @@ func (s *GameSettings) render() string {
 		builder.WriteString("unable to save to .go-racer.conf\n")
 		fmt.Fprintf(builder, "got: %v\n", s.err)
 	}
-
-	builder.WriteString("press esc to exit\n")
-	builder.WriteString("press b to unfocus/go back to main menu\n")
 
 	return builder.String()
 }

@@ -58,7 +58,7 @@ func NewGame() *Game {
 	}
 }
 
-func (g *Game) createTest() string {
+func (g *Game) createTest() {
 	selectedTest := g.racer.settings.selectedOptions["words"]
 
 	var words []string
@@ -118,7 +118,7 @@ func (g *Game) createTest() string {
 		g.rightIdx = len(target)
 	}
 
-	return strings.Join(test, " ")
+	g.target = target
 }
 
 func (g *Game) SetWordDb(wordDb *WordDb) {
@@ -235,7 +235,7 @@ func (g *Game) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return g, tea.Quit
 		case "enter":
 			g.started = true
-			g.target = g.createTest()
+			g.createTest()
 			cmd = g.startGame()
 		}
 	}
@@ -321,15 +321,17 @@ func (g *Game) View() string {
 	if g.finished {
 		builder.WriteString("Results: \n\n")
 		fmt.Fprintf(builder, "time: %d s\n", g.ticks)
-		fmt.Fprintf(builder, "press b to go to main menu\n")
+		builder.WriteRune('\n')
+		fmt.Fprintf(builder, "press esc to go to main menu\n")
 		fmt.Fprintf(builder, "press r to restart\n")
-		builder.WriteString("press esc to quit\n")
+		fmt.Fprintf(builder, "press enter to go to next test\n")
+		builder.WriteString("press ctrl+c to quit\n")
 		return builder.String()
 	}
 
 	if !g.started {
 		builder.WriteString("press enter to start\n")
-		builder.WriteString("press b to go to main menu\n")
+		builder.WriteString("press esc to go to main menu\n")
 	} else {
 		fmt.Fprintf(builder, "name: %s\n", g.defaultWordList.Name)
 		builder.WriteString(g.timer.View())
@@ -355,7 +357,7 @@ func (g *Game) View() string {
 
 	builder.WriteString("\n\n")
 
-	builder.WriteString("press esc to quit\n")
+	builder.WriteString("press ctrl+c to quit\n")
 	return builder.String()
 }
 
