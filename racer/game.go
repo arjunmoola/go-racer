@@ -203,11 +203,6 @@ func (g *Game) stopGame() tea.Cmd {
 	return g.timer.Stop()
 }
 
-func (g *Game) gotoMainMenu() tea.Msg {
-	return mainMenuEvent{}
-}
-
-
 func (g *Game) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
