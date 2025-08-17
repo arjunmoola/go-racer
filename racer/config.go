@@ -97,6 +97,10 @@ func initializeConfigDir() (*Config, error) {
 		return nil, err
 	}
 
+	if err := os.Mkdir(defaultTestDir, 0777); err != nil {
+		return nil, err
+	}
+
 	return config, nil
 }
 
@@ -114,6 +118,22 @@ func ReadOrCreateConfig() (*Config, error) {
 
 	if dirNotFound {
 		return initializeConfigDir()
+	}
+
+	var testDirNotFound bool
+
+	if _, err := os.Lstat(defaultTestDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			testDirNotFound = true
+		} else {
+			return nil, err
+		}
+	}
+
+	if testDirNotFound {
+		if err := os.Mkdir(defaultTestDir, 0777); err != nil {
+			return nil, err
+		}
 	}
 
 	return ReadConfigFile()

@@ -52,6 +52,9 @@ type Game struct {
 
 	wordDb *WordDb
 	defaultWordList *WordList
+
+	test string
+	time int
 }
 
 func NewGame() *Game {
@@ -74,6 +77,8 @@ func (g *Game) createTest() {
 		words = g.wordDb.wordLists[selectedTest].Words
 	}
 
+	g.test = g.defaultWordList.Name
+
 	selectedTime := g.racer.settings.selectedOptions["time"]
 
 	var dur int64
@@ -85,6 +90,7 @@ func (g *Game) createTest() {
 	}
 
 	g.timer = timer.New(time.Duration(dur)*time.Second)
+	g.time = int(dur)
  
 	n := len(words)
 

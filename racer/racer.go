@@ -7,6 +7,7 @@ import (
 	"os"
 	"fmt"
 	"slices"
+	"golang.org/x/sync/errgroup"
 )
 
 type RacerState int
@@ -34,13 +35,36 @@ type RacerModel struct {
 	game *Game
 	settings *GameSettings
 	config *Config
+	stats *GameStats
+
+	fileSaver chan any
+	close chan struct{}
+	errCh chan error
+}
+
+type saveGameStatsRequest struct {
+	stats *GameStats
+}
+
+type saveGameTestRequest struct {
+	test *RacerTest
+}
+
+type saveGameStatsAndTestRequest struct {
+	stats *GameStats
+	test *RacerTest
 }
 
 func NewRacerModel() (*RacerModel, error) {
 	model := &RacerModel{
 		stateUpdateFunc: make(map[RacerState]teaUpdateFunc),
 		stateViewFunc: make(map[RacerState]teaViewFunc),
+		fileSaver: make(chan any),
+		close: make(chan struct{}, 1),
+		errCh: make(chan error, 1),
 	}
+
+	go model.listen()
 
 	options := []string{ "start", "settings", "quit" }
 	menu := &List{}
@@ -68,6 +92,14 @@ func NewRacerModel() (*RacerModel, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	stats, err := ReadGameStats()
+
+	if err != nil {
+		return nil, err
+	}
+
+	model.stats = stats
 
 	game := NewGame()
 	game.debug = false
@@ -112,6 +144,78 @@ func NewRacerModel() (*RacerModel, error) {
 	return model, nil
 }
 
+type RacerModelShutdownMsg struct{}
+
+func (r *RacerModel) Shutdown() tea.Cmd {
+	return func() tea.Msg {
+		close(r.close)
+		return RacerModelShutdownMsg{}
+	}
+}
+
+func (r *RacerModel) listen() {
+	for {
+		select {
+		case <-r.close:
+			r.fileSaver = nil
+			return
+		case req := <-r.fileSaver:
+			switch rq :=req.(type) {
+			case saveGameStatsAndTestRequest:
+				r.saveGameStatsAndTest(rq)
+			case saveGameStatsRequest:
+				r.saveGameStats(rq)
+			}
+		}
+	}
+}
+
+func (r *RacerModel) saveGameStatsAndTest(rq saveGameStatsAndTestRequest) {
+	stats := rq.stats
+	test := rq.test
+
+	var g errgroup.Group
+
+	g.Go(func() error {
+		return stats.Save()
+	})
+
+	g.Go(func() error {
+		return test.Save()
+	})
+
+	if err := g.Wait(); err != nil {
+		panic(err)
+		//r.errCh <- err
+	}
+}
+
+type saveFileErr error
+
+
+func (r *RacerModel) checkErrorCmd() tea.Cmd {
+	return func() tea.Msg {
+		if err := <-r.errCh; err != nil {
+			return saveFileErr(err)
+		}
+
+		return nil
+	}
+}
+
+func (r *RacerModel) saveGameStats(rq saveGameStatsRequest) {
+	if err := rq.stats.Save(); err != nil {
+		r.errCh <- err
+	}
+}
+
+func (r *RacerModel) sendSaveRequest(req any) tea.Cmd {
+	return func() tea.Msg {
+		r.fileSaver <- req
+		return nil
+	}
+}
+
 func (r *RacerModel) Run() error {
 	if _, err := tea.NewProgram(r, tea.WithAltScreen()).Run(); err != nil {
 		return err
@@ -139,16 +243,24 @@ func (r *RacerModel) Init() tea.Cmd {
 }
 
 func (r *RacerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var pcmd tea.Cmd
+
 	switch msg :=  msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c":
-			return r, tea.Quit
+			return r, r.Shutdown()
 		}
+	case RacerModelShutdownMsg:
+		return r, tea.Quit
+
+	case saveFileErr:
+		pcmd = tea.Printf("%v\n", msg)
 	}
 
-	return r.currentUpdateFunc(msg)
+	_, cmd := r.currentUpdateFunc(msg)
 
+	return r, tea.Batch(cmd, r.checkErrorCmd(), pcmd)
 }
 
 func (r *RacerModel) View() string {
@@ -169,7 +281,7 @@ func (r *RacerModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "esc":
-			return r, tea.Quit
+			return r, r.Shutdown()
 		case "j":
 			menu.Next()
 		case "k":
@@ -183,7 +295,7 @@ func (r *RacerModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "settings":
 				r.SetState(SETTINGS)
 			case "quit":
-				return r, tea.Quit
+				return r, r.Shutdown()
 			}
 		}
 	}
@@ -266,6 +378,28 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 		g.timer, timerCmd = g.timer.Update(msg)
 	}
 
+	if g.finished {
+		r.stats.TotalCompleted++
+		r.stats.LastTestId++
+
+		test := &RacerTest{
+			Id: r.stats.LastTestId,
+			Target: g.target,
+			Input: string(g.inputs),
+			Test: g.test,
+			Time: g.time,
+		}
+
+		stats := r.stats.Copy()
+
+		req := saveGameStatsAndTestRequest{
+			stats: stats,
+			test: test,
+		}
+
+		return r, tea.Batch(cmd, timerCmd, r.sendSaveRequest(req))
+	}
+
 	return r, tea.Batch(cmd, timerCmd)
 }
 
@@ -282,6 +416,8 @@ func (r *RacerModel) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r, nil
 		case "enter":
 			g.started = true
+			r.stats.Total++
+			r.stats.TotalAttempted++
 			g.createTest()
 			cmd = g.startGame()
 		}
@@ -292,8 +428,9 @@ func (r *RacerModel) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if g.started && !g.finished {
 		g.timer, timerCmd = g.timer.Update(msg)
 	}
-
-	return r, tea.Batch(cmd, timerCmd)
+	stats := r.stats.Copy()
+	req := saveGameStatsRequest{ stats }
+	return r, tea.Batch(cmd, timerCmd, r.sendSaveRequest(req))
 }
 
 func (r *RacerModel) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -305,25 +442,33 @@ func (r *RacerModel) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			g.Reset()
 			r.SetState(MAIN_MENU)
+			return r, nil
 		case "r":
 			g.Reset()
 			r.SetState(GAME)
+			return r, nil
 		case "enter":
 			g.Reset()
 			r.SetState(GAME)
 			g.started = true
+			r.stats.Total++
+			r.stats.TotalAttempted++
 			g.createTest()
 			cmd = g.startGame()
 		}
 	}
 
 	var timerCmd tea.Cmd
+	var saveCmd tea.Cmd
 
 	if g.started && !g.finished {
 		g.timer, timerCmd = g.timer.Update(msg)
+		stats := r.stats.Copy()
+		req := saveGameStatsRequest{ stats }
+		saveCmd = r.sendSaveRequest(req)
 	}
 
-	return r, tea.Batch(cmd, timerCmd)
+	return r, tea.Batch(cmd, timerCmd, saveCmd)
 }
 
 func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
