@@ -21,6 +21,8 @@ var (
 	charMismatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
 	highlightStyle = lipgloss.NewStyle().Background(lipgloss.Color("32"))
 	viewStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).Align(lipgloss.Left).Height(3)
+	overlapSpaceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A9A9A9")).Underline(true)
+	timerStyle = lipgloss.NewStyle().PaddingRight(3)
 )
 
 type Game struct {
@@ -45,6 +47,8 @@ type Game struct {
 	leftLineIdx int
 	rightIdx int
 	rightLineIdx int
+
+	curWpm int
 
 	sampleIdx int
 	prevSampleIdx int
@@ -360,7 +364,11 @@ func (g *Game) View() string {
 		builder.WriteString("press esc to go to main menu\n")
 	} else {
 		fmt.Fprintf(builder, "name: %s\n", g.defaultWordList.Name)
-		builder.WriteString(g.timer.View())
+		timeView := timerStyle.Render(g.timer.View())
+		wpmView := fmt.Sprintf("wpm: %d", g.curWpm)
+		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, wpmView))
+
+		//builder.WriteString(g.timer.View())
 		builder.WriteRune('\n')
 
 		s := g.render()
@@ -453,6 +461,8 @@ func (g *Game) render() string {
 				s += charMatchStyle.Render(string(g.inputs[i]))
 			}
 			//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
+		} else if g.inputs[i] == ' ' && g.target[i] != ' ' {
+			s += overlapSpaceStyle.Render(string(g.target[i]))
 		} else {
 			s += charMismatchStyle.Render(string(g.inputs[i]))
 			//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
