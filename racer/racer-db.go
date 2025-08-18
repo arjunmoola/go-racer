@@ -36,6 +36,20 @@ const createTestsTableQuery = `
 	)
 `
 
+type RacerTestInsertParams struct {
+	testName string
+	testDuration int
+	target string
+	input string
+}
+
+type GameStatsInsertParams struct {
+	total int
+	totalCompleted int
+	totalAttempted int
+	lastTestId int
+}
+
 func SetupDB(path string) (*sql.DB, error) {
 	db, err := sql.Open(driverName, defaultDbPath)
 

@@ -209,24 +209,6 @@ func (r *RacerModel) listen() {
 }
 
 func (r *RacerModel) saveGameStatsAndTest(rq saveGameStatsAndTestRequest) {
-	//var g errgroup.Group
-
-	//g.Go(func() error {
-	//	return stats.Save()
-	//})
-
-	//g.Go(func() error {
-	//	return test.Save()
-	//})
-
-	//g.Go(func() error {
-	//	return InsertRacerTest(r.db, rq.test)
-	//})
-
-	//g.Go(func() error {
-		//return UpdateGameStats(r.db, rq.stats)
-	//})
-
 	tx, err := r.db.Begin()
 
 	if err != nil {
@@ -264,10 +246,6 @@ func (r *RacerModel) checkErrorCmd() tea.Cmd {
 }
 
 func (r *RacerModel) saveGameStats(rq saveGameStatsRequest) {
-	//if err := rq.stats.Save(); err != nil {
-	//	r.errCh <- err
-	//}
-
 	if err := UpdateGameStats(r.db, rq.stats); err != nil {
 		r.errCh <- err
 	}
@@ -610,7 +588,6 @@ func convertTestsToRows(tests []*RacerTest) []table.Row {
 		id := strconv.Itoa(test.Id)
 		time := strconv.Itoa(test.Time)
 		row := append(make([]string, 0, 5), id, test.Test, time, test.Target, test.Input)
-
 		rows = append(rows, row)
 	}
 
