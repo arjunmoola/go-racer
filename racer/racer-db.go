@@ -173,7 +173,7 @@ func GetTotalNumberOfTests(db *sql.DB) (int, error) {
 }
 
 func GetAllTests(db *sql.DB) ([]*RacerTest, error) {
-	query := "SELECT id, test_name, test_duration, target, input FROM all_tests"
+	query := "SELECT id, test_name, test_duration, target, input FROM all_tests ORDER BY id DESC LIMIT 100"
 
 	rows, err := db.Query(query)
 
