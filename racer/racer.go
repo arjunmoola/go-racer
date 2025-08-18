@@ -3,11 +3,14 @@ package racer
 import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/timer"
+	"github.com/charmbracelet/bubbles/table"
 	"strings"
 	"os"
 	"fmt"
 	"slices"
-	"golang.org/x/sync/errgroup"
+	//"golang.org/x/sync/errgroup"
+	"database/sql"
+	"strconv"
 )
 
 type RacerState int
@@ -17,6 +20,7 @@ const (
 	SETTINGS
 	GAME
 	RESULTS
+	STATISTICS
 )
 
 type teaUpdateFunc func(tea.Msg) (tea.Model, tea.Cmd)
@@ -37,9 +41,14 @@ type RacerModel struct {
 	config *Config
 	stats *GameStats
 
+	allStats table.Model
+	allStatsErr error
+
 	fileSaver chan any
 	close chan struct{}
 	errCh chan error
+
+	db *sql.DB
 }
 
 type saveGameStatsRequest struct {
@@ -66,7 +75,7 @@ func NewRacerModel() (*RacerModel, error) {
 
 	go model.listen()
 
-	options := []string{ "start", "settings", "quit" }
+	options := []string{ "start", "settings", "stats", "quit" }
 	menu := &List{}
 	menu.SetItems(options)
 
@@ -101,6 +110,20 @@ func NewRacerModel() (*RacerModel, error) {
 
 	model.stats = stats
 
+	db, err := SetupDB(defaultDbPath)
+
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = GetGameStats(db)
+
+	if err != nil {
+		return nil, err
+	}
+
+	model.db = db
+
 	game := NewGame()
 	game.debug = false
 	game.racer = model
@@ -131,6 +154,18 @@ func NewRacerModel() (*RacerModel, error) {
 	model.settings = settings
 	settings.model = model
 
+	model.allStats = table.New()
+
+	tableCols := []table.Column{
+		{ Title: "Id", Width: 10 },
+		{ Title: "Name", Width: 10 },
+		{ Title: "Test Duration", Width: 10 },
+		{ Title: "Words", Width: 10 },
+		{ Title: "Input", Width: 10 },
+	}
+
+	model.allStats.SetColumns(tableCols)
+
 	model.registerStateUpdateFunc(MAIN_MENU, model.updateMainMenu)
 	model.registerStateViewFunc(MAIN_MENU, model.viewMainMenu)
 	model.registerStateUpdateFunc(GAME, model.updateGame)
@@ -138,6 +173,9 @@ func NewRacerModel() (*RacerModel, error) {
 
 	model.registerStateUpdateFunc(SETTINGS, model.updateGameSettings)
 	model.registerStateViewFunc(SETTINGS, model.settings.render)
+
+	model.registerStateUpdateFunc(STATISTICS, model.updateStats)
+	model.registerStateViewFunc(STATISTICS, model.viewStats)
 
 	model.SetState(MAIN_MENU)
 
@@ -171,22 +209,44 @@ func (r *RacerModel) listen() {
 }
 
 func (r *RacerModel) saveGameStatsAndTest(rq saveGameStatsAndTestRequest) {
-	stats := rq.stats
-	test := rq.test
+	//var g errgroup.Group
 
-	var g errgroup.Group
+	//g.Go(func() error {
+	//	return stats.Save()
+	//})
 
-	g.Go(func() error {
-		return stats.Save()
-	})
+	//g.Go(func() error {
+	//	return test.Save()
+	//})
 
-	g.Go(func() error {
-		return test.Save()
-	})
+	//g.Go(func() error {
+	//	return InsertRacerTest(r.db, rq.test)
+	//})
 
-	if err := g.Wait(); err != nil {
-		panic(err)
-		//r.errCh <- err
+	//g.Go(func() error {
+		//return UpdateGameStats(r.db, rq.stats)
+	//})
+
+	tx, err := r.db.Begin()
+
+	if err != nil {
+		tx.Rollback()
+		r.errCh <- err
+	}
+
+	if err := UpdateGameStatsTx(tx, rq.stats); err != nil {
+		tx.Rollback()
+		r.errCh <- err
+	}
+
+	if err := InsertRacerTestTx(tx, rq.test); err != nil {
+		tx.Rollback()
+		r.errCh <- err
+	}
+
+	if err := tx.Commit(); err != nil {
+		tx.Rollback()
+		r.errCh <- err
 	}
 }
 
@@ -204,7 +264,11 @@ func (r *RacerModel) checkErrorCmd() tea.Cmd {
 }
 
 func (r *RacerModel) saveGameStats(rq saveGameStatsRequest) {
-	if err := rq.stats.Save(); err != nil {
+	//if err := rq.stats.Save(); err != nil {
+	//	r.errCh <- err
+	//}
+
+	if err := UpdateGameStats(r.db, rq.stats); err != nil {
 		r.errCh <- err
 	}
 }
@@ -294,6 +358,10 @@ func (r *RacerModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 				r.SetState(GAME)
 			case "settings":
 				r.SetState(SETTINGS)
+			case "stats":
+				r.SetState(STATISTICS)
+				r.allStats.Focus()
+				return r, r.getAllTests()
 			case "quit":
 				return r, r.Shutdown()
 			}
@@ -514,4 +582,74 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return r, nil
+}
+
+type getAllTestsErr error
+type getAllTestsSuccess struct {
+	tests []*RacerTest
+}
+
+func (r *RacerModel) getAllTests() tea.Cmd {
+	return func() tea.Msg {
+		tests, err := GetAllTests(r.db)
+
+		if err != nil {
+			return getAllTestsErr(err)
+		}
+
+		return getAllTestsSuccess{
+			tests: tests,
+		}
+	}
+}
+
+func convertTestsToRows(tests []*RacerTest) []table.Row {
+	rows := make([]table.Row, 0, len(tests))
+
+	for _, test := range tests {
+		id := strconv.Itoa(test.Id)
+		time := strconv.Itoa(test.Time)
+		row := append(make([]string, 0, 5), id, test.Test, time, test.Target, test.Input)
+
+		rows = append(rows, row)
+	}
+
+	return rows
+
+}
+
+func (r *RacerModel) updateStats(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "j":
+			r.allStats.MoveDown(1)
+		case "k":
+			r.allStats.MoveUp(1)
+		case "esc":
+			r.allStats.Blur()
+			r.SetState(MAIN_MENU)
+			return r, nil
+		}
+	case getAllTestsErr:
+		r.allStatsErr = msg
+	case getAllTestsSuccess:
+		r.allStatsErr = nil
+		tests := msg.tests
+		rows := convertTestsToRows(tests)
+		r.allStats.SetRows(rows)
+		r.allStats.Focus()
+	}
+
+	_, cmd := r.allStats.Update(msg)
+
+	return r, cmd
+}
+
+func (r *RacerModel) viewStats() string {
+	builder := &strings.Builder{}
+	builder.WriteString(r.allStats.View())
+	builder.WriteRune('\n')
+	builder.WriteString("press esc to go back to main menu\n")
+	return builder.String()
 }
