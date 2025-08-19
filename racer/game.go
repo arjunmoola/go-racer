@@ -26,7 +26,14 @@ var (
 )
 
 type Game struct {
+	id int
+	testName string
+	testDuration int
+	testSize int
+	wordsTestSize int
+
 	racer *RacerModel
+	mode string
 	debug bool
 	started bool
 	target string
@@ -35,8 +42,9 @@ type Game struct {
 	idx int
 	timer timer.Model
 	finished bool
+
 	ticks int
-	testSize int
+
 	numWordsPerLine int
 	lineOffsets []int
 	curLine int
@@ -48,64 +56,56 @@ type Game struct {
 	rightIdx int
 	rightLineIdx int
 
+	wordIdx int
+	curWord string
+
 	allowBackspace bool
-
 	curWpm int
-
 	sampleIdx int
 	prevSampleIdx int
 	samples []string
-
-	wordDb *WordDb
-	defaultWordList *WordList
-
-	test string
-	time int
 }
 
-func NewGame() *Game {
-	t := timer.New(time.Second*30)
-
-	return &Game{
-		timer: t,
+func NewGameFromConfig(config *Config) *Game {
+	game := &Game{
+		numWordsPerLine: config.NumWordsPerLine,
+		windowSize: config.WindowSize,
+		testSize: config.TestSize,
+		debug: config.Debug,
 	}
+	return game
 }
 
 func (g *Game) createTest() {
-	selectedTest := g.racer.settings.selectedOptions["words"]
+	g.id++
+	racer := g.racer
+	config := racer.config
 
-	var words []string
+	g.testName = config.Words
+	g.testDuration = config.Time
+	g.testSize = config.TestSize
+	g.wordsTestSize = config.WordsTestSize
+	g.allowBackspace = config.AllowBackspace
+	g.mode = config.GameMode
 
-	if selectedTest == "" {
-		words = g.defaultWordList.Words
-	} else {
-		g.defaultWordList = g.wordDb.wordLists[selectedTest]
-		words = g.wordDb.wordLists[selectedTest].Words
-	}
+	g.timer = timer.New(time.Duration(g.testDuration)*time.Second)
 
-	g.test = g.defaultWordList.Name
+	selectedWordList, _ := racer.wordDb.Get(g.testName)
+	words := selectedWordList.Words
 
-	selectedTime := g.racer.settings.selectedOptions["time"]
-
-	var dur int64
-
-	if selectedTime == "" {
-		dur = 120
-	} else {
-		dur, _ = strconv.ParseInt(selectedTime, 10, 64)
-	}
-
-	allowBackspace := g.racer.settings.selectedOptions["allow backspace"]
-	g.allowBackspace = allowBackspace == "yes"
-
-	g.timer = timer.New(time.Duration(dur)*time.Second)
-	g.time = int(dur)
- 
 	n := len(words)
 
-	test := make([]string, 0, g.testSize)
+	var testSize int
 
-	for range g.testSize {
+	if g.mode == "words" {
+		testSize = g.wordsTestSize
+	} else {
+		testSize = g.testSize
+	}
+
+	test := make([]string, 0, testSize)
+
+	for range testSize {
 		idx := rand.IntN(n)
 		test = append(test, words[idx])
 	}
@@ -118,7 +118,7 @@ func (g *Game) createTest() {
 	for i := 0; i < len(target); i++ {
 		if target[i] == ' ' {
 			count++
-			if count == 15 {
+			if count == g.numWordsPerLine {
 				count = 0
 				lineOffsets = append(lineOffsets, i+1)
 			}
@@ -128,7 +128,6 @@ func (g *Game) createTest() {
 	g.lineOffsets = lineOffsets
 	g.curLine = 0
 	g.curWindow = 0
-	g.windowSize = 3
 	g.leftIdx = 0
 	g.sampleIdx = 0
 	g.prevSampleIdx = 0
@@ -142,14 +141,6 @@ func (g *Game) createTest() {
 	g.target = target
 }
 
-func (g *Game) SetWordDb(wordDb *WordDb) {
-	g.wordDb = wordDb
-}
-
-func (g *Game) SetDefaultWordList(name string) {
-	g.defaultWordList = g.wordDb.wordLists[name]
-}
-
 func (g *Game) Reset() {
 	g.inputs = nil
 	g.charIdx = 0
@@ -158,14 +149,6 @@ func (g *Game) Reset() {
 	g.ticks = 0
 	g.finished = false
 	g.started = false
-}
-
-func (g *Game) SetTarget(target string) {
-	g.target = target
-}
-
-func (g *Game) Init() tea.Cmd {
-	return nil
 }
 
 func (g *Game) updateSampleIdx() {
@@ -230,124 +213,32 @@ func (g *Game) trimByte() {
 	g.inputs = g.inputs[:len(g.inputs)-1]
 }
 
-func (g *Game) startGame() tea.Cmd {
+type GameTickMsg struct{
+	gameId int
+	Timeout bool
+}
+
+func (g *Game) tickCmd(finished bool, id int) tea.Cmd {
+	return tea.Tick(1*time.Second, func(_ time.Time) tea.Msg {
+		return GameTickMsg{
+			gameId: id,
+			Timeout: finished,
+		}
+	})
+}
+
+func (g *Game) startGame(id int) tea.Cmd {
+	if g.mode == "words" {
+		return g.tickCmd(false, id)
+	}
 	return g.timer.Init()
 }
 
-func (g *Game) stopGame() tea.Cmd {
+func (g *Game) stopGame(id int) tea.Cmd {
+	if g.mode == "words" {
+		return g.tickCmd(true, id)
+	}
 	return g.timer.Stop()
-}
-
-func (g *Game) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "b":
-			g.Reset()
-			g.racer.SetState(MAIN_MENU)
-		case "esc":
-			return g, tea.Quit
-		case "r":
-			g.Reset()
-			g.racer.SetState(GAME)
-		}
-	}
-
-	return g, nil
-}
-
-func (g *Game) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var cmd tea.Cmd
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "b":
-			g.Reset()
-			g.racer.SetState(MAIN_MENU)
-			return g, nil
-		case "esc":
-			return g, tea.Quit
-		case "enter":
-			g.started = true
-			g.createTest()
-			cmd = g.startGame()
-		}
-	}
-
-	var timerCmd tea.Cmd
-
-	if g.started && !g.finished {
-		g.timer, timerCmd = g.timer.Update(msg)
-	}
-
-	return g, tea.Batch(cmd, timerCmd)
-}
-
-func (g *Game) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if !g.started {
-		return g.updateGameNotStarted(msg)
-	}
-
-	if g.finished {
-		return g.updateGameFinished(msg)
-	}
-
-	var cmd tea.Cmd
-
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.Type {
-		case tea.KeyEsc:
-			return g, tea.Quit
-		case tea.KeyRunes:
-			runes := msg.Runes
-			g.charIdx = g.idx
-			char := byte(runes[0])
-
-			if !isValidChar(char) {
-				break
-			}
-
-			g.appendByte(char)
-			g.incIndex()
-			if len(g.target) == len(g.inputs) {
-				g.finished = true
-				cmd = g.stopGame()
-			}
-		case tea.KeyBackspace:
-			if len(g.inputs) == 0 {
-				break
-			}
-			g.trimByte()
-			g.decIndex()
-		case tea.KeySpace:
-			g.charIdx = g.idx
-			g.appendByte(' ')
-			g.incIndex()
-			if len(g.target) == len(g.inputs) {
-				g.finished = true
-				cmd = g.stopGame()
-			}
-		}
-	case timer.TickMsg:
-		if msg.Timeout {
-			g.finished = true
-			break
-		}
-
-		if g.started && !g.finished {
-			g.ticks++
-		}
-	}
-
-	var timerCmd tea.Cmd
-
-	if g.started && !g.finished {
-		g.timer, timerCmd = g.timer.Update(msg)
-	}
-
-	return g, tea.Batch(cmd, timerCmd)
 }
 
 func (g *Game) View() string {
@@ -355,12 +246,14 @@ func (g *Game) View() string {
 
 	if g.finished {
 		builder.WriteString("Results: \n\n")
+		fmt.Fprintf(builder, "name: %s\n", g.testName)
+		fmt.Fprintf(builder, "mode: %s\n", g.mode)
 		fmt.Fprintf(builder, "time: %d s\n", g.ticks)
 		builder.WriteRune('\n')
 		fmt.Fprintf(builder, "press esc to go to main menu\n")
 		fmt.Fprintf(builder, "press r to restart\n")
 		fmt.Fprintf(builder, "press enter to go to next test\n")
-		builder.WriteString("press ctrl+c to quit\n")
+		//builder.WriteString("press ctrl+c to quit\n")
 		return builder.String()
 	}
 
@@ -368,10 +261,17 @@ func (g *Game) View() string {
 		builder.WriteString("press enter to start\n")
 		builder.WriteString("press esc to go to main menu\n")
 	} else {
-		fmt.Fprintf(builder, "name: %s\n", g.defaultWordList.Name)
-		timeView := timerStyle.Render(g.timer.View())
+		fmt.Fprintf(builder, "name: %s\n", g.testName)
+		timeView := ""
+		switch g.mode {
+		case "time":
+			timeView = timerStyle.Render(g.timer.View())
+		case "words":
+			timeView = timerStyle.Render(fmt.Sprintf("%d", g.ticks))
+		}
 		wpmView := fmt.Sprintf("wpm: %d", g.curWpm)
-		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, wpmView))
+		modeView := fmt.Sprintf("mode: %s", g.mode)
+		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, modeView, wpmView))
 
 		//builder.WriteString(g.timer.View())
 		builder.WriteRune('\n')

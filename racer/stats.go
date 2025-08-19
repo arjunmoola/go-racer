@@ -17,14 +17,6 @@ type GameStats struct {
 	LastTestId int `json:"lastTestId"`
 }
 
-type RacerTest struct {
-	Id int `json:"-"`
-	Test string `json:"test"`
-	Time int `json:"time"`
-	Target string `json:"target"`
-	Input string `json:"input"`
-}
-
 var (
 	defaultStatsPath = filepath.Join(defaultConfigDir, "stats.json")
 	defaultTestDir = filepath.Join(defaultConfigDir, "tests")

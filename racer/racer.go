@@ -46,6 +46,9 @@ type RacerModel struct {
 	config *Config
 	stats *GameStats
 
+	wordDb *WordDb
+	selectedWordList *WordList
+
 	allStats table.Model
 	allStatsErr error
 
@@ -135,6 +138,8 @@ func NewRacerModel() (*RacerModel, error) {
 	menu := &List{}
 	menu.SetItems(options)
 
+	model.menu = menu
+
 	config, err := ReadOrCreateConfig()
 
 	if err != nil {
@@ -166,6 +171,9 @@ func NewRacerModel() (*RacerModel, error) {
 		return nil, err
 	}
 
+	model.wordDb = wordDb
+	model.selectedWordList = wordDb.wordLists[config.Words]
+
 	stats, err := ReadGameStats()
 
 	if err != nil {
@@ -179,6 +187,7 @@ func NewRacerModel() (*RacerModel, error) {
 	if err != nil {
 		return nil, err
 	}
+	model.db = db
 
 	_, err = GetGameStats(db)
 
@@ -201,19 +210,11 @@ func NewRacerModel() (*RacerModel, error) {
 		model.playerInfoModel.value = playerInfo.name
 	}
 
-	model.db = db
-	game := NewGame()
-	game.debug = false
+	game := NewGameFromConfig(config)
 	game.racer = model
-	game.SetWordDb(wordDb)
-	game.SetDefaultWordList(config.Words)
-	game.numWordsPerLine = 20
-	game.testSize = 500
-
-	model.menu = menu
 	model.game = game
 
-	optionNames := []string{ "words", "time", "allow backspace" }
+	optionNames := []string{ "words", "time", "allow backspace", "mode", "words test size" }
 
 	wordBank := make([]string, 0, len(wordDb.wordLists))
 
@@ -225,7 +226,11 @@ func NewRacerModel() (*RacerModel, error) {
 
 	times := []string{"15", "25",  "30", "60", "120" }
 	backspaceOptions := []string{ "yes", "no" }
-	settingOptions := [][]string{ wordBank, times, backspaceOptions }
+
+	modeOptions := []string{ "time", "words" }
+	wordsTestSize := []string{ "25", "50", "100" }
+
+	settingOptions := [][]string{ wordBank, times, backspaceOptions, modeOptions, wordsTestSize }
 
 	settings := NewGameSettings(optionNames, settingOptions)
 
@@ -247,6 +252,7 @@ func NewRacerModel() (*RacerModel, error) {
 
 	model.registerStateUpdateFunc(MAIN_MENU, model.updateMainMenu)
 	model.registerStateViewFunc(MAIN_MENU, model.viewMainMenu)
+
 	model.registerStateUpdateFunc(GAME, model.updateGame)
 	model.registerStateViewFunc(GAME, model.game.View)
 
@@ -495,7 +501,7 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			g.incIndex()
 			if len(g.target) == len(g.inputs) {
 				g.finished = true
-				cmd = g.stopGame()
+				cmd = g.stopGame(g.id)
 			}
 		case tea.KeyBackspace:
 			if !g.allowBackspace {
@@ -512,7 +518,7 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			g.incIndex()
 			if len(g.target) == len(g.inputs) {
 				g.finished = true
-				cmd = g.stopGame()
+				cmd = g.stopGame(g.id)
 			}
 		case tea.KeyTab:
 			g.Reset()
@@ -520,7 +526,7 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.stats.Total++
 			r.stats.TotalAttempted++
 			g.createTest()
-			cmd = g.startGame()
+			cmd = g.startGame(g.id)
 			return r, cmd
 		}
 	case timer.TickMsg:
@@ -529,14 +535,32 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			break
 		}
 
+		if g.started && !g.finished && g.mode == "time" {
+			g.ticks++
+		}
+	case GameTickMsg:
+		if g.mode != "words" {
+			break
+		}
+
+		if msg.gameId != g.id {
+			break
+		}
+
+		if !g.finished && msg.Timeout {
+			g.finished = true
+			break
+		}
+
 		if g.started && !g.finished {
 			g.ticks++
+			return r, g.tickCmd(false, g.id)
 		}
 	}
 
 	var timerCmd tea.Cmd
 
-	if g.started && !g.finished {
+	if g.started && !g.finished && g.mode == "time" {
 		g.timer, timerCmd = g.timer.Update(msg)
 	}
 
@@ -548,8 +572,8 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Id: r.stats.LastTestId,
 			Target: g.target,
 			Input: string(g.inputs),
-			Test: g.test,
-			Time: g.time,
+			Test: g.testName,
+			Time: g.testDuration,
 		}
 
 		stats := r.stats.Copy()
@@ -581,13 +605,13 @@ func (r *RacerModel) updateGameNotStarted(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.stats.Total++
 			r.stats.TotalAttempted++
 			g.createTest()
-			cmd = g.startGame()
+			cmd = g.startGame(g.id)
 		}
 	}
 
 	var timerCmd tea.Cmd
 
-	if g.started && !g.finished {
+	if g.started && !g.finished && g.mode == "time" {
 		g.timer, timerCmd = g.timer.Update(msg)
 	}
 	stats := r.stats.Copy()
@@ -616,14 +640,14 @@ func (r *RacerModel) updateGameFinished(msg tea.Msg) (tea.Model, tea.Cmd) {
 			r.stats.Total++
 			r.stats.TotalAttempted++
 			g.createTest()
-			cmd = g.startGame()
+			cmd = g.startGame(g.id)
 		}
 	}
 
 	var timerCmd tea.Cmd
 	var saveCmd tea.Cmd
 
-	if g.started && !g.finished {
+	if g.started && !g.finished && g.mode == "time" {
 		g.timer, timerCmd = g.timer.Update(msg)
 		stats := r.stats.Copy()
 		req := saveGameStatsRequest{ stats }

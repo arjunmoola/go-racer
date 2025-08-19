@@ -19,11 +19,27 @@ var (
 	defaultDataDir = filepath.Join(defaultConfigDir, "data")
 )
 
+const (
+	defaultWindowSize = 3
+	defaultGameMode = "time"
+	defaultNumWordsPerLine = 20
+	defaultAllowBackspace = false
+	defaultTestName = "english"
+	defaultTestDuration = 30
+	defaultTestSize = 500
+	defaultWordsTestSize = 25
+)
+
 type Config struct {
 	Words string `json:"words"`
 	Time int `json:"time"`
-	Mode string `json:"mode"`
-	AllowBackspace string `json:"allowBackspace"`
+	GameMode string `json:"gameMode"`
+	AllowBackspace bool `json:"allowBackspace"`
+	Debug bool `json:"debug"`
+	WindowSize int `json:"windowSize"`
+	NumWordsPerLine int `json:"numWordsPerLine"`
+	TestSize int `json:"testSize"`
+	WordsTestSize int `json:"wordsTestSize"`
 	data string `json:"-"`
 }
 
@@ -44,8 +60,32 @@ func ReadConfigFile() (*Config, error) {
 
 	config.data = defaultDataDir
 
-	if config.AllowBackspace == "" {
-		config.AllowBackspace = "yes"
+	if config.Words == "" {
+		config.Words = defaultTestName
+	}
+
+	if config.Time <= 0 {
+		config.Time = defaultTestDuration
+	}
+
+	if config.GameMode == "" {
+		config.GameMode = defaultGameMode
+	}
+
+	if config.WindowSize <= 0 {
+		config.WindowSize = defaultWindowSize
+	}
+
+	if config.NumWordsPerLine <= 0 {
+		config.NumWordsPerLine = defaultNumWordsPerLine
+	}
+
+	if config.TestSize <= 0 {
+		config.TestSize = defaultTestSize
+	}
+
+	if config.WordsTestSize <= 0 {
+		config.WordsTestSize = defaultWordsTestSize
 	}
 
 	return config, nil
@@ -73,9 +113,15 @@ func (c *Config) Save() error {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Words: "english",
-		Time: 30,
+		Words: defaultTestName,
+		Time: defaultTestDuration,
+		GameMode: defaultGameMode,
 		data: defaultDataDir,
+		NumWordsPerLine: defaultNumWordsPerLine,
+		WindowSize: defaultWindowSize,
+		AllowBackspace: defaultAllowBackspace,
+		TestSize: defaultTestSize,
+		WordsTestSize: defaultWordsTestSize,
 	}
 }
 
@@ -99,10 +145,6 @@ func initializeConfigDir() (*Config, error) {
 	}
 
 	if err := os.Mkdir(defaultDataDir, 0777); err != nil {
-		return nil, err
-	}
-
-	if err := os.Mkdir(defaultTestDir, 0777); err != nil {
 		return nil, err
 	}
 

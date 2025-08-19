@@ -125,6 +125,34 @@ func (s *GameSettings) SelectSettingsOption() {
 	}
 
 	s.selectedOptions[opt.name] = opt.l.selectedValue
+
+	s.updateConfig()
+}
+
+func (s *GameSettings) GetSelectedOption(key string) (string, bool) {
+	value, ok := s.selectedOptions[key]
+	return value, ok
+}
+
+func (s *GameSettings) updateConfig() {
+	config := s.model.config
+
+	for optName, value := range s.selectedOptions {
+		switch optName {
+		case "words":
+			config.Words = value
+		case "time":
+			t, _ := strconv.ParseInt(value, 10, 64)
+			config.Time = int(t)
+		case "allow backspace":
+			config.AllowBackspace = value == "yes"
+		case "mode":
+			config.GameMode = value
+		case "words test size":
+			t, _ := strconv.ParseInt(value, 10, 64)
+			config.WordsTestSize = int(t)
+		}
+	}
 }
 
 type gameSettingsErr error
@@ -135,15 +163,7 @@ func (s *GameSettings) SaveSettings() tea.Msg {
 	config := s.model.config
 	path := os.ExpandEnv(defaultConfigPath)
 
-	words := s.selectedOptions["words"]
-	t := s.selectedOptions["time"]
-	allowBack := s.selectedOptions["allow backspace"]
-
-	tval, _ := strconv.ParseInt(t, 10, 64)
-
-	config.Words = words
-	config.Time = int(tval)
-	config.AllowBackspace = allowBack
+	s.updateConfig()
 
 	file, err := os.Create(path)
 
@@ -185,7 +205,15 @@ func (s *GameSettings) FromConfig(config *Config) {
 	t := strconv.Itoa(config.Time)
 	s.SetSelectedOption("time", t)
 	s.SetSelectedOption("words", config.Words)
-	s.SetSelectedOption("allow backspace", config.AllowBackspace)
+	var allowBack string
+	if config.AllowBackspace {
+		allowBack = "yes"
+	} else {
+		allowBack = "no"
+	}
+	s.SetSelectedOption("allow backspace", allowBack)
+	s.SetSelectedOption("mode", config.GameMode)
+	s.SetSelectedOption("words test size", strconv.Itoa(config.WordsTestSize))
 }
 
 func (s *GameSettings) resetSaveState() {
@@ -219,6 +247,36 @@ func NewGameSettings(optionNames []string, options [][]string) *GameSettings {
 	gameSettings.EnterOption()
 
 	return gameSettings
+}
+
+func (s *GameSettings) containsOption(optName string) bool {
+	for _, opt := range s.options {
+		if opt.name == optName {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *GameSettings) registerOptions(optName string, options []string) {
+	if s.containsOption(optName) {
+		return
+	}
+
+	l := NewList()
+	l.SetItems(options)
+
+	opt := &settingsOption{
+		name: optName,
+		l: l,
+		focus: false,
+	}
+
+	s.options = append(s.options, opt)
+
+	if len(s.options) == 1 {
+		s.EnterOption()
+	}
 }
 
 func (s *GameSettings) render() string {

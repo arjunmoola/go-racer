@@ -31,8 +31,13 @@ const createTestsTableQuery = `
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		test_name VARCHAR,
 		test_duration INTEGER,
+		test_size INTEGER,
+		mode VARCHAR,
+		allow_backspace BOOLEAN,
 		target VARCHAR,
-		input VARCHAR
+		input VARCHAR,
+		wpm INTEGER,
+		cps INTEGER
 	)
 `
 
@@ -51,6 +56,8 @@ const createPlayerInfoTableQuery =`
 type RacerTestInsertParams struct {
 	testName string
 	testDuration int
+	testSize int
+	mode string
 	target string
 	input string
 }
@@ -69,6 +76,19 @@ type PlayerInfoInsertParams struct {
 	curHp int
 	wpm int
 	bossesDefeated int
+}
+
+type RacerTest struct {
+	Id int
+	Test string
+	Time int
+	TestSize int
+	Mode string
+	AllowBackspace bool
+	Target string
+	Input string
+	Wpm int
+	Cps int
 }
 
 type PlayerInfo struct {

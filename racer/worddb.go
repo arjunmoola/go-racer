@@ -90,6 +90,16 @@ func (w *WordDb) Get(name string) (*WordList, bool) {
 	return l, ok
 }
 
+func (w *WordDb) GetWords(name string) ([]string, bool) {
+	l, ok := w.wordLists[name]
+
+	if !ok {
+		return nil, false
+	}
+
+	return l.Words, true
+}
+
 func (w *WordDb) Set(l *WordList) {
 	w.wordLists[l.Name] = l
 }
