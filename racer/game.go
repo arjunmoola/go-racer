@@ -48,6 +48,8 @@ type Game struct {
 	rightIdx int
 	rightLineIdx int
 
+	allowBackspace bool
+
 	curWpm int
 
 	sampleIdx int
@@ -92,6 +94,9 @@ func (g *Game) createTest() {
 	} else {
 		dur, _ = strconv.ParseInt(selectedTime, 10, 64)
 	}
+
+	allowBackspace := g.racer.settings.selectedOptions["allow backspace"]
+	g.allowBackspace = allowBackspace == "yes"
 
 	g.timer = timer.New(time.Duration(dur)*time.Second)
 	g.time = int(dur)

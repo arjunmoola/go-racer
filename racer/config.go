@@ -23,6 +23,7 @@ type Config struct {
 	Words string `json:"words"`
 	Time int `json:"time"`
 	Mode string `json:"mode"`
+	AllowBackspace string `json:"allowBackspace"`
 	data string `json:"-"`
 }
 
@@ -42,6 +43,10 @@ func ReadConfigFile() (*Config, error) {
 	}
 
 	config.data = defaultDataDir
+
+	if config.AllowBackspace == "" {
+		config.AllowBackspace = "yes"
+	}
 
 	return config, nil
 }

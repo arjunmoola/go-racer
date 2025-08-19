@@ -137,11 +137,13 @@ func (s *GameSettings) SaveSettings() tea.Msg {
 
 	words := s.selectedOptions["words"]
 	t := s.selectedOptions["time"]
+	allowBack := s.selectedOptions["allow backspace"]
 
 	tval, _ := strconv.ParseInt(t, 10, 64)
 
 	config.Words = words
 	config.Time = int(tval)
+	config.AllowBackspace = allowBack
 
 	file, err := os.Create(path)
 
@@ -183,6 +185,7 @@ func (s *GameSettings) FromConfig(config *Config) {
 	t := strconv.Itoa(config.Time)
 	s.SetSelectedOption("time", t)
 	s.SetSelectedOption("words", config.Words)
+	s.SetSelectedOption("allow backspace", config.AllowBackspace)
 }
 
 func (s *GameSettings) resetSaveState() {

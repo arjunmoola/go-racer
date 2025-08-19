@@ -36,6 +36,18 @@ const createTestsTableQuery = `
 	)
 `
 
+const createPlayerInfoTableQuery =`
+	CREATE TABLE IF NOT EXISTS player_info(
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		name VARCHAR NOT NULL,
+		level INTEGER,
+		max_hp INTEGER,
+		cur_hp INTEGER,
+		wpm INTEGER,
+		bosses_defeated INTEGER
+	)
+`
+
 type RacerTestInsertParams struct {
 	testName string
 	testDuration int
@@ -48,6 +60,24 @@ type GameStatsInsertParams struct {
 	totalCompleted int
 	totalAttempted int
 	lastTestId int
+}
+
+type PlayerInfoInsertParams struct {
+	name string
+	level int
+	maxHp int
+	curHp int
+	wpm int
+	bossesDefeated int
+}
+
+type PlayerInfo struct {
+	name string
+	level int
+	maxHp int
+	curHp int
+	wpm int
+	bossesDefeated int
 }
 
 func SetupDB(path string) (*sql.DB, error) {
@@ -74,6 +104,12 @@ func SetupDB(path string) (*sql.DB, error) {
 	}
 
 	_, err = db.Exec(createTestsTableQuery)
+
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = db.Exec(createPlayerInfoTableQuery)
 
 	if err != nil {
 		return nil, err
@@ -108,6 +144,52 @@ func GetGameStats(db *sql.DB) (*GameStats, error) {
 	}
 
 	return &stats, nil
+}
+
+func GetPlayerInfo(db *sql.DB) (*PlayerInfo, bool, error) {
+	query := "SELECT name, level, max_hp, cur_hp, wpm, bosses_defeated FROM player_info WHERE id = 1"
+
+	row := db.QueryRow(query)
+	info := PlayerInfo{}
+
+	err := row.Scan(
+		&info.name,
+		&info.level,
+		&info.maxHp,
+		&info.curHp,
+		&info.wpm,
+		&info.bossesDefeated,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		} else {
+			return nil, false, err
+		}
+	}
+
+	return &info, true, nil
+}
+
+func InsertPlayerInfo(db *sql.DB, params *PlayerInfoInsertParams) error {
+	query := "INSERT INTO player_info VALUES(1, ?, ?, ?, ?, ?, ?)"
+
+	_, err := db.Exec(
+		query,
+		params.name,
+		params.level,
+		params.maxHp,
+		params.curHp,
+		params.wpm,
+		params.bossesDefeated,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func UpdateGameStats(db *sql.DB, stats *GameStats) error {

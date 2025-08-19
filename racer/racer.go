@@ -1,6 +1,9 @@
 package racer
 
 import (
+	"bufio"
+	"time"
+	//"io"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/timer"
 	"github.com/charmbracelet/bubbles/table"
@@ -19,8 +22,10 @@ const (
 	MAIN_MENU RacerState = iota
 	SETTINGS
 	GAME
+	GAME_INTRO
 	RESULTS
 	STATISTICS
+	PLAYER_INFO
 )
 
 type teaUpdateFunc func(tea.Msg) (tea.Model, tea.Cmd)
@@ -48,6 +53,12 @@ type RacerModel struct {
 	close chan struct{}
 	errCh chan error
 
+	playerInfo *PlayerInfo
+	playerFound bool
+	playerInfoModel *PlayerInfoModel
+
+	introModel *IntroModel
+
 	db *sql.DB
 }
 
@@ -64,6 +75,51 @@ type saveGameStatsAndTestRequest struct {
 	test *RacerTest
 }
 
+type savePlayerInfoRequest struct {
+	name string
+}
+
+func readIntroText() ([]string, error) {
+	path := os.ExpandEnv("$HOME/.go-racer/wuxia/intro.txt")
+
+	file, err := os.Open(path)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Split(bufio.ScanLines)
+
+	var chunks []string
+
+	builder := &strings.Builder{}
+
+	for scanner.Scan() {
+		text := scanner.Text()
+		if len(text) == 0 {
+			chunks = append(chunks, builder.String())
+			builder.Reset()
+		} else {
+			fmt.Fprintln(builder, text)
+		}
+	}
+
+	chunks = append(chunks, builder.String())
+
+	if len(chunks) == 0 {
+		panic("incorrect number of chunks")
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return chunks, nil
+}
+
 func NewRacerModel() (*RacerModel, error) {
 	model := &RacerModel{
 		stateUpdateFunc: make(map[RacerState]teaUpdateFunc),
@@ -75,7 +131,7 @@ func NewRacerModel() (*RacerModel, error) {
 
 	go model.listen()
 
-	options := []string{ "start", "settings", "stats", "quit" }
+	options := []string{ "start", "begin", "settings", "stats", "quit" }
 	menu := &List{}
 	menu.SetItems(options)
 
@@ -95,6 +151,14 @@ func NewRacerModel() (*RacerModel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid data path %s", path)
 	}
+
+	chunks, err := readIntroText()
+
+	if err != nil {
+		return nil, err
+	}
+
+	model.introModel = NewIntroModel(chunks)
 
 	wordDb, err := LoadWordDb(path)
 
@@ -122,8 +186,22 @@ func NewRacerModel() (*RacerModel, error) {
 		return nil, err
 	}
 
-	model.db = db
+	playerInfo, found, err := GetPlayerInfo(db)
 
+	if err != nil {
+		return nil, err
+	}
+
+	model.playerInfo = playerInfo
+	model.playerFound = found
+	model.playerInfoModel = NewPlayerInfoModel()
+	model.playerInfoModel.found = found
+
+	if playerInfo != nil && found {
+		model.playerInfoModel.value = playerInfo.name
+	}
+
+	model.db = db
 	game := NewGame()
 	game.debug = false
 	game.racer = model
@@ -135,7 +213,7 @@ func NewRacerModel() (*RacerModel, error) {
 	model.menu = menu
 	model.game = game
 
-	optionNames := []string{ "words", "time" }
+	optionNames := []string{ "words", "time", "allow backspace" }
 
 	wordBank := make([]string, 0, len(wordDb.wordLists))
 
@@ -146,10 +224,11 @@ func NewRacerModel() (*RacerModel, error) {
 	slices.Sort(wordBank)
 
 	times := []string{"15", "25",  "30", "60", "120" }
-
-	settingOptions := [][]string{ wordBank, times }
+	backspaceOptions := []string{ "yes", "no" }
+	settingOptions := [][]string{ wordBank, times, backspaceOptions }
 
 	settings := NewGameSettings(optionNames, settingOptions)
+
 	settings.FromConfig(config)
 	model.settings = settings
 	settings.model = model
@@ -177,6 +256,12 @@ func NewRacerModel() (*RacerModel, error) {
 	model.registerStateUpdateFunc(STATISTICS, model.updateStats)
 	model.registerStateViewFunc(STATISTICS, model.viewStats)
 
+	model.registerStateUpdateFunc(GAME_INTRO, model.updateIntroModel)
+	model.registerStateViewFunc(GAME_INTRO, model.introModel.render)
+
+	model.registerStateUpdateFunc(PLAYER_INFO, model.updatePlayerInfoModel)
+	model.registerStateViewFunc(PLAYER_INFO, model.playerInfoModel.render)
+
 	model.SetState(MAIN_MENU)
 
 	return model, nil
@@ -203,9 +288,26 @@ func (r *RacerModel) listen() {
 				r.saveGameStatsAndTest(rq)
 			case saveGameStatsRequest:
 				r.saveGameStats(rq)
+			case savePlayerInfoRequest:
+				r.insertPlayerInfo(rq)
 			}
 		}
 	}
+}
+
+func (r *RacerModel) insertPlayerInfo(rq savePlayerInfoRequest) {
+	params := &PlayerInfoInsertParams{
+		name: rq.name,
+	}
+
+	err := InsertPlayerInfo(r.db, params)
+
+	if err != nil {
+		r.errCh <- err
+		panic(err)
+	}
+
+	panic("here")
 }
 
 func (r *RacerModel) saveGameStatsAndTest(rq saveGameStatsAndTestRequest) {
@@ -334,6 +436,9 @@ func (r *RacerModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch selectedOption {
 			case "start":
 				r.SetState(GAME)
+			case "begin":
+				r.SetState(GAME_INTRO)
+				return r, doChunkTick2(string(r.introModel.lines[0]), r.introModel.idx)
 			case "settings":
 				r.SetState(SETTINGS)
 			case "stats":
@@ -393,6 +498,9 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd = g.stopGame()
 			}
 		case tea.KeyBackspace:
+			if !g.allowBackspace {
+				break
+			}
 			if len(g.inputs) == 0 {
 				break
 			}
@@ -406,6 +514,14 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 				g.finished = true
 				cmd = g.stopGame()
 			}
+		case tea.KeyTab:
+			g.Reset()
+			g.started = true
+			r.stats.Total++
+			r.stats.TotalAttempted++
+			g.createTest()
+			cmd = g.startGame()
+			return r, cmd
 		}
 	case timer.TickMsg:
 		if msg.Timeout {
@@ -629,4 +745,118 @@ func (r *RacerModel) viewStats() string {
 	builder.WriteRune('\n')
 	builder.WriteString("press esc to go back to main menu\n")
 	return builder.String()
+}
+
+type chunkTickMsg struct{}
+
+func doChunkTick() tea.Cmd {
+	return tea.Tick(10*time.Millisecond, func(_ time.Time) tea.Msg {
+		return chunkTickMsg{}
+	})
+}
+
+type chunkCharTickMsg byte
+
+func doChunkTick2(chunk string, idx int) tea.Cmd {
+	return tea.Tick(10*time.Millisecond, func(_ time.Time) tea.Msg {
+		return chunkCharTickMsg(chunk[idx])
+	})
+}
+
+func (r *RacerModel) updateIntroModel(msg tea.Msg) (tea.Model, tea.Cmd) {
+	intro := r.introModel
+
+	if intro.done {
+		r.SetState(PLAYER_INFO)
+		return r, nil
+	}
+
+	switch msg := msg.(type) {
+	case chunkCharTickMsg:
+		c := msg
+		intro.out = append(intro.out, byte(c))
+		if intro.idx + 1 < len(intro.lines[intro.lineIdx]) {
+			intro.idx++
+			return r, doChunkTick2(string(intro.lines[intro.lineIdx]), intro.idx)
+		}
+	 case tea.KeyMsg:
+		switch msg.String() {
+		case "tab":
+			intro.done = true
+			r.SetState(PLAYER_INFO)
+			return r, nil
+		case "esc":
+			r.SetState(MAIN_MENU)
+			intro.reset()
+			return r, nil
+		default:
+			if intro.lineIdx + 1 < len(intro.lines) {
+				intro.waitForInput = false
+				intro.out = []byte{}
+				intro.lineIdx++
+				intro.idx = 0
+				return r, doChunkTick2(string(intro.lines[intro.lineIdx]), intro.idx)
+			} else {
+				intro.done = true
+			}
+			return r, doChunkTick()
+		}
+	}
+	return r, nil
+}
+
+func (r *RacerModel) updatePlayerInfoModel(msg tea.Msg) (tea.Model, tea.Cmd) {
+	info := r.playerInfoModel
+
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyEsc:
+			info.input = []byte{}
+			r.SetState(MAIN_MENU)
+			return r, nil
+		case tea.KeyRunes:
+			char := byte(msg.Runes[0])
+			if isValidChar(char) {
+				info.input = append(info.input, char)
+			}
+		case tea.KeyBackspace:
+			if len(info.input) != 0 {
+				info.input = info.input[:len(info.input)-1]
+			}
+		case tea.KeySpace:
+			info.input = append(info.input, ' ')
+		case tea.KeyEnter:
+			name := string(info.input)
+			info.value = name
+			if len(name) == 0 {
+				break
+			}
+			params := &PlayerInfoInsertParams{
+				name: name,
+			}
+			return r, r.insertPlayerInfoCmd(params)
+		}
+	case insertPlayerSuccess:
+		info.found = true
+		r.playerFound = true
+		r.playerInfo = &PlayerInfo{
+			name: info.value,
+		}
+		r.playerFound = true
+	}
+	return r, nil
+}
+
+type insertPlayerInfoErr error
+type insertPlayerSuccess struct{}
+
+func (r *RacerModel) insertPlayerInfoCmd(params *PlayerInfoInsertParams) tea.Cmd {
+	return func() tea.Msg {
+		if err := InsertPlayerInfo(r.db, params); err != nil {
+			return insertPlayerInfoErr(err)
+		}
+
+		return insertPlayerSuccess{}
+	}
 }
