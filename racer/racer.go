@@ -361,7 +361,7 @@ func (r *RacerModel) sendSaveRequest(req any) tea.Cmd {
 }
 
 func (r *RacerModel) Run() error {
-	if _, err := tea.NewProgram(r, tea.WithAltScreen()).Run(); err != nil {
+	if _, err := tea.NewProgram(r, tea.WithAltScreen(), tea.WithFPS(120)).Run(); err != nil {
 		return err
 	}
 	return nil
