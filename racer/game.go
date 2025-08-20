@@ -85,6 +85,36 @@ func (a alignment) String() string {
 	return builder.String()
 }
 
+func (a alignment) compress() string {
+	builder := &strings.Builder{}
+	prevOp := a[0]
+	matchLen := 1
+	buf := ""
+
+	for i := 1; i < len(a); i++ {
+		op := a[i]
+		
+		if op.Code() == prevOp.Code() {
+			matchLen++
+			buf += string(prevOp.Byte())
+		} else {
+			if matchLen == 1 {
+				builder.WriteString(prevOp.String())
+			} else {
+				fmt.Fprintf(builder, "m(%s)", buf)
+				matchLen = 1
+			}
+		}
+		prevOp = op
+	}
+
+	if matchLen == 1 {
+	}
+
+	return builder.String()
+
+}
+
 func (a alignment) rle() string {
 	builder := &strings.Builder{}
 
@@ -117,6 +147,22 @@ func (a alignment) rle() string {
 
 	if matchLen == 1 {
 		fmt.Fprintf(builder, "%s", prevOp.Code())
+	} else {
+		fmt.Fprintf(builder, "%d%s", matchLen, prevOp.Code())
+	}
+
+	return builder.String()
+}
+
+func (a alignment) final() string {
+	builder := &strings.Builder{}
+	
+	for _, op := range a {
+		if op.Code() == "d" {
+			continue
+		}
+
+		builder.WriteByte(op.Byte())
 	}
 
 	return builder.String()
@@ -273,12 +319,10 @@ func (g *Game) updateSampleIdx() {
 }
 
 func (g *Game) sample() {
-	if g.idx >= g.prevSampleIdx {
-		s := string(g.target[g.prevSampleIdx:g.idx])
-		g.samples = append(g.samples, s)
-		g.updateSampleIdx()
-
-	}
+	g.ticks++
+	g.accs = append(g.accs, g.accuracy)
+	g.charsPerSec = append(g.charsPerSec, g.numCharsPerSec)
+	g.numCharsPerSec = 0
 }
 
 func (g *Game) incIndex() {
@@ -322,16 +366,32 @@ func isValidChar(char byte) bool {
 }
 
 func (g *Game) appendByte(char byte) {
+	g.charIdx = g.idx
 	g.inputs = append(g.inputs, char)
+	g.charBuffer = append(g.charBuffer, char)
+	g.numCharsPerSec++
+	g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
+	if g.target[g.idx] == char {
+		g.alignment = append(g.alignment, matchOp(char))
+		g.numMatches++
+	} else {
+		g.alignment = append(g.alignment, mismatchOp(char))
+		g.numMisses++
+	}
+	g.incIndex()
 }
 
-func (g *Game) appendOp(op editOp) {
-	g.alignment = append(g.alignment, op)
+func (g *Game) restart() {
+	g.Reset()
+	g.started = true
+	g.createTest()
 }
 
 func (g *Game) trimByte() byte {
 	b := g.inputs[len(g.inputs)-1]
 	g.inputs = g.inputs[:len(g.inputs)-1]
+	g.alignment = append(g.alignment, deleteOp(b))
+	g.decIndex()
 	return b
 }
 
@@ -386,7 +446,7 @@ func (g *Game) View() string {
 		fmt.Fprintf(builder, "accuracry: %.2f%%\n", g.accuracy*100)
 		fmt.Fprintf(builder, "cps: %d\n", computeCps(g.charsPerSec))
 		fmt.Fprintf(builder, "%v\n", g.charsPerSec)
-		fmt.Fprintf(builder, "%s\n", g.alignment)
+		//fmt.Fprintf(builder, "%s\n", g.alignment)
 		fmt.Fprintf(builder, "rle: %s\n", g.alignment.rle())
 		builder.WriteRune('\n')
 		fmt.Fprintf(builder, "press esc to go to main menu\n")
