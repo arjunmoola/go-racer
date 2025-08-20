@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"golang.org/x/sync/errgroup"
 	"errors"
+
 )
 
 var (
@@ -107,4 +108,18 @@ func (w *WordDb) Set(l *WordList) {
 func (w *WordDb) Contains(name string) bool {
 	_, ok := w.wordLists[name]
 	return ok
+}
+
+func (w *WordList) Save() error {
+	path := filepath.Join(defaultDataDir, w.Name + ".json")
+
+	file, err := os.Create(path)
+
+	if err != nil {
+		return err
+	}
+
+	defer file.Close()
+
+	return json.NewEncoder(file).Encode(w)
 }

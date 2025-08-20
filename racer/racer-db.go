@@ -32,13 +32,19 @@ const createTestsTableQuery = `
 		test_name VARCHAR,
 		test_duration INTEGER,
 		test_size INTEGER,
-		accuracry DOUBLE,
+		accuracy DOUBLE,
 		mode VARCHAR,
 		allow_backspace BOOLEAN,
 		target VARCHAR,
 		input VARCHAR,
 		wpm INTEGER,
-		cps INTEGER
+		cps INTEGER,
+		rle VARCHAR,
+		raw_input VARCHAR,
+		sample_rate INTEGER,
+		acc_samples DOUBLE[],
+		cps_samples INTEGER[],
+		wpm_samples INTEGER[]
 	)
 `
 
@@ -95,6 +101,12 @@ type RacerTest struct {
 	Input string
 	Wpm int
 	Cps int
+	Rle string
+	RawInput string
+	SampleRate int
+	AccList []float64
+	CpsList []int
+	WpmList []int
 }
 
 type PlayerInfo struct {
@@ -242,10 +254,37 @@ func UpdateGameStatsTx(tx *sql.Tx, stats *GameStats) error {
 	return nil
 }
 
-func InsertRacerTest(db *sql.DB, test *RacerTest) error {
-	query := "INSERT INTO all_tests (test_name, test_duration, test_size, accuracy, mode, allow_backspace, target, input, wpm, cps) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+func prepareStatement(s string, db *sql.DB) (*sql.Stmt, error) {
+	stmt, err := db.Prepare(s)
 
-	_, err := db.Exec(query, test.Test, test.Time, test.TestSize, test.Accuracy, test.Mode, test.AllowBackspace, test.Target, test.Input, test.Wpm, test.Cps)
+	if err != nil {
+		return nil, err
+	}
+
+	return stmt, nil
+}
+
+const insertTestStmtStr = "INSERT INTO all_tests (test_name, test_duration, test_size, accuracy, mode, allow_backspace, target, input, wpm, cps, rle, raw_input, sample_rate, acc_samples, cps_samples, wpm_samples) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+
+func InsertRacerTestStmt(stmt *sql.Stmt, test *RacerTest) error {
+	_, err := stmt.Exec(
+		test.Test,
+		test.Time,
+		test.TestSize,
+		test.Accuracy,
+		test.Mode,
+		test.AllowBackspace,
+		test.Target,
+		test.Input,
+		test.Wpm,
+		test.Cps,
+		test.Rle,
+		test.RawInput,
+		test.SampleRate,
+		test.AccList,
+		test.CpsList,
+		test.WpmList,
+	)
 
 	if err != nil {
 		return err
@@ -280,10 +319,19 @@ func GetTotalNumberOfTests(db *sql.DB) (int, error) {
 	return count, nil
 }
 
-func GetAllTests(db *sql.DB) ([]*RacerTest, error) {
-	query := "SELECT id, test_name, test_duration, test_size, accuracy, mode, target, input FROM all_tests ORDER BY id DESC LIMIT 100"
+const getAllTestsQueryStr = `
+	SELECT
+		id, test_name, test_duration,
+		test_size, accuracy, mode,
+		allow_backspace, target, input,
+		wpm, cps, rle, raw_input
+	FROM all_tests
+	ORDER BY id DESC
+	LIMIT 100
+	`
 
-	rows, err := db.Query(query)
+func GetAllTests(stmt *sql.Stmt) ([]*RacerTest, error) {
+	rows, err := stmt.Query()
 
 	if err != nil {
 		return nil, err
@@ -303,8 +351,13 @@ func GetAllTests(db *sql.DB) ([]*RacerTest, error) {
 			&test.TestSize,
 			&test.Accuracy,
 			&test.Mode,
+			&test.AllowBackspace,
 			&test.Target,
 			&test.Input,
+			&test.Wpm,
+			&test.Cps,
+			&test.Rle,
+			&test.RawInput,
 		)
 
 		if err != nil {

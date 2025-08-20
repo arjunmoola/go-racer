@@ -168,6 +168,15 @@ func (a alignment) final() string {
 	return builder.String()
 }
 
+func (a alignment) rawString() string {
+	builder := &strings.Builder{}
+
+	for _, op := range a {
+		builder.WriteByte(op.Byte())
+	}
+	return builder.String()
+}
+
 
 type Game struct {
 	id int
@@ -370,7 +379,6 @@ func (g *Game) appendByte(char byte) {
 	g.inputs = append(g.inputs, char)
 	g.charBuffer = append(g.charBuffer, char)
 	g.numCharsPerSec++
-	g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
 	if g.target[g.idx] == char {
 		g.alignment = append(g.alignment, matchOp(char))
 		g.numMatches++
@@ -378,6 +386,7 @@ func (g *Game) appendByte(char byte) {
 		g.alignment = append(g.alignment, mismatchOp(char))
 		g.numMisses++
 	}
+	g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
 	g.incIndex()
 }
 
@@ -435,6 +444,38 @@ func computeCps(nums []int) (total int) {
 	return total/len(nums)
 }
 
+func (g *Game) computeMismatchedWords() []wordPair {
+	input := string(g.inputs)
+	n := len(input)
+	target := g.target[:n]
+
+	wordMap := make(map[string]int)
+	leftIdx := 0
+
+	for i := 0; i < len(target); i++ {
+		if target[i] != ' ' {
+			continue
+		}
+
+		if word := string(target[leftIdx:i]); word != string(input[leftIdx:i]) {
+			wordMap[word]++
+		}
+
+		i++
+		leftIdx = i
+	}
+
+	if word := string(target[leftIdx:]); word != string(input[leftIdx:]) {
+		for i := n; i < len(g.target) && g.target[i] != ' '; i++ {
+			i++
+			word += string(g.target[i])
+		}
+		wordMap[word]++
+	}
+
+	return createWordPairs(wordMap)
+}
+
 func (g *Game) View() string {
 	builder := &strings.Builder{}
 
@@ -445,9 +486,15 @@ func (g *Game) View() string {
 		fmt.Fprintf(builder, "time: %d s\n", g.ticks)
 		fmt.Fprintf(builder, "accuracry: %.2f%%\n", g.accuracy*100)
 		fmt.Fprintf(builder, "cps: %d\n", computeCps(g.charsPerSec))
-		fmt.Fprintf(builder, "%v\n", g.charsPerSec)
+		pairs := g.computeMismatchedWords()
+		words := make([]string, 0, len(pairs))
+		for _, pair := range pairs {
+			words = append(words, pair.word)
+		}
+		//fmt.Fprintf(builder, "%v\n", g.charsPerSec)
 		//fmt.Fprintf(builder, "%s\n", g.alignment)
 		fmt.Fprintf(builder, "rle: %s\n", g.alignment.rle())
+		fmt.Fprintf(builder, "missed words: %s\n", strings.Join(words, " "))
 		builder.WriteRune('\n')
 		fmt.Fprintf(builder, "press esc to go to main menu\n")
 		fmt.Fprintf(builder, "press r to restart\n")

@@ -283,6 +283,19 @@ func NewGameSettings(optionNames []string, options [][]string) *GameSettings {
 	return gameSettings
 }
 
+func (s *GameSettings) appendSettingsOption(optName string, item string) {
+	for _, opt := range s.options {
+		if opt.name == optName {
+			for _, existingItem := range opt.l.items {
+				if existingItem == item {
+					return
+				}
+			}
+			opt.l.items = append(opt.l.items, item)
+		}
+	}
+}
+
 func (s *GameSettings) containsOption(optName string) bool {
 	for _, opt := range s.options {
 		if opt.name == optName {

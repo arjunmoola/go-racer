@@ -13,7 +13,7 @@ import (
 	"slices"
 	//"golang.org/x/sync/errgroup"
 	"database/sql"
-	"strconv"
+	//"strconv"
 )
 
 type RacerState int
@@ -63,6 +63,8 @@ type RacerModel struct {
 	introModel *IntroModel
 
 	db *sql.DB
+	insertTestStmt *sql.Stmt
+	getAllTestsStmt *sql.Stmt
 }
 
 type saveGameStatsRequest struct {
@@ -201,6 +203,21 @@ func NewRacerModel() (*RacerModel, error) {
 		return nil, err
 	}
 
+	insertTestStmt, err := prepareStatement(insertTestStmtStr, db)
+
+	if err != nil {
+		return nil, err
+	}
+
+	model.insertTestStmt = insertTestStmt
+
+	getAllTestsQueryStmt, err := prepareStatement(getAllTestsQueryStr, db)
+
+	if err != nil {
+		return nil, err
+	}
+	model.getAllTestsStmt = getAllTestsQueryStmt
+
 	model.playerInfo = playerInfo
 	model.playerFound = found
 	model.playerInfoModel = NewPlayerInfoModel()
@@ -245,10 +262,15 @@ func NewRacerModel() (*RacerModel, error) {
 		{ Title: "Name", Width: 10 },
 		{ Title: "Test Duration", Width: 10 },
 		{ Title: "Mode", Width: 10 },
+		{ Title: "Allow Backspace", Width: 10 },
 		{ Title: "Test Size", Width: 10 },
 		{ Title: "Accuracy", Width: 10 },
 		{ Title: "Words", Width: 10 },
 		{ Title: "Input", Width: 10 },
+		{ Title: "Wpm", Width: 10 },
+		{ Title: "Cps", Width: 10 },
+		{ Title: "Rle", Width: 10 },
+		{ Title: "Raw Input", Width: 10 },
 	}
 
 	model.allStats.SetColumns(tableCols)
@@ -281,6 +303,7 @@ type RacerModelShutdownMsg struct{}
 func (r *RacerModel) Shutdown() tea.Cmd {
 	return func() tea.Msg {
 		close(r.close)
+
 		return RacerModelShutdownMsg{}
 	}
 }
@@ -348,7 +371,7 @@ type insertRacerTestErr error
 
 func (r *RacerModel) insertRacerTestCmd(test *RacerTest) tea.Cmd {
 	return func() tea.Msg {
-		if err := InsertRacerTest(r.db, test); err != nil {
+		if err := InsertRacerTestStmt(r.insertTestStmt, test); err != nil {
 			return insertRacerTestErr(err)
 		}
 
@@ -403,7 +426,11 @@ func (r *RacerModel) SetState(state RacerState) {
 }
 
 func (r *RacerModel) Init() tea.Cmd {
-	return nil
+	return r.ProcessTestsCmd()
+}
+
+type UpdateWordDb struct {
+	l *WordList
 }
 
 func (r *RacerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -416,10 +443,19 @@ func (r *RacerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r, r.Shutdown()
 		}
 	case RacerModelShutdownMsg:
+		r.insertTestStmt.Close()
+		r.getAllTestsStmt.Close()
+		r.db.Close()
 		return r, tea.Quit
 
-	case saveFileErr:
+	case insertRacerTestErr:
 		pcmd = tea.Printf("%v\n", msg)
+		return r, pcmd
+	//case saveFileErr:
+	//	pcmd = tea.Printf("%v\n", msg)
+	case UpdateWordDb:
+		r.wordDb.wordLists[msg.l.Name] = msg.l
+		r.settings.appendSettingsOption("words", msg.l.Name)
 	}
 
 	_, cmd := r.currentUpdateFunc(msg)
@@ -579,6 +615,14 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Mode: g.mode,
 			TestSize: g.wordsTestSize,
 			AllowBackspace: g.allowBackspace,
+			Cps: computeCps(g.charsPerSec),
+			Wpm: 0,
+			Rle: g.alignment.rle(),
+			RawInput: g.alignment.rawString(),
+			SampleRate: 1,
+			//AccList: slices.Clone(g.accs),
+			//CpsList: slices.Clone(g.charsPerSec),
+			//WpmList: slices.Repeat([]int{0}, len(g.charsPerSec)), 
 		}
 
 		//stats := r.stats.Copy()
@@ -588,7 +632,13 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//	test: test,
 		//}
 
-		return r, tea.Batch(cmd, timerCmd, r.insertRacerTestCmd(test))
+		var cmd tea.Cmd
+
+		if g.id % 3 == 0 {
+			cmd = r.ProcessTestsCmd()
+		}
+
+		return r, tea.Batch(cmd, timerCmd, r.insertRacerTestCmd(test), cmd)
 	}
 
 	return r, tea.Batch(cmd, timerCmd)
@@ -732,7 +782,7 @@ type getAllTestsSuccess struct {
 
 func (r *RacerModel) getAllTests() tea.Cmd {
 	return func() tea.Msg {
-		tests, err := GetAllTests(r.db)
+		tests, err := GetAllTests(r.getAllTestsStmt)
 
 		if err != nil {
 			return getAllTestsErr(err)
@@ -744,18 +794,31 @@ func (r *RacerModel) getAllTests() tea.Cmd {
 	}
 }
 
+func (t *RacerTest) row() []string {
+	return []string{
+		fmt.Sprintf("%d", t.Id),
+		t.Test,
+		fmt.Sprintf("%d", t.Time),
+		t.Mode,
+		fmt.Sprintf("%v", t.AllowBackspace),
+		fmt.Sprintf("%d", t.TestSize),
+		fmt.Sprintf("%.2f", t.Accuracy),
+		t.Target,
+		t.Input,
+		fmt.Sprintf("%d", t.Wpm),
+		fmt.Sprintf("%d", t.Cps),
+		t.Rle,
+		fmt.Sprintf("%s", t.RawInput),
+	}
+}
+
 func convertTestsToRows(tests []*RacerTest) []table.Row {
 	rows := make([]table.Row, 0, len(tests))
 
 	for _, test := range tests {
-		id := strconv.Itoa(test.Id)
-		time := strconv.Itoa(test.Time)
-		row := append(make([]string, 0, 5), id, test.Test, time, test.Target, test.Input)
-		rows = append(rows, row)
+		rows = append(rows, test.row())
 	}
-
 	return rows
-
 }
 
 func (r *RacerModel) updateStats(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -905,5 +968,106 @@ func (r *RacerModel) insertPlayerInfoCmd(params *PlayerInfoInsertParams) tea.Cmd
 		}
 
 		return insertPlayerSuccess{}
+	}
+}
+
+type processTestsErr error
+
+type wordPair struct {
+	word string
+	count int
+}
+
+func createWordPairs(wordCount map[string]int) []wordPair {
+	pairs := make([]wordPair, 0, len(wordCount))
+
+	for key, value := range wordCount {
+		pairs = append(pairs, wordPair{ key, value })
+	}
+
+	slices.SortStableFunc(pairs, func(a, b wordPair) int {
+		if a.count == b.count {
+			return 0
+		} else if a.count > b.count {
+			return 1
+		} else {
+			return -1
+		}
+	})
+
+	return pairs
+}
+
+//func filter[S []T, T any](s S, f func(T) bool) S {
+//	idx := 0
+//	for _, item := range s {
+//		if f(item) {
+//			s[idx] = item
+//			idx++
+//		}
+//	}
+//	s = s[:idx]
+//	return s
+//}
+
+type RefreshModel struct{}
+
+func (r *RacerModel) ProcessTestsCmd() tea.Cmd {
+	return func() tea.Msg {
+		tests, err := GetAllTests(r.getAllTestsStmt)
+
+		if err != nil {
+			return processTestsErr(err)
+		}
+
+		wordCount := make(map[string]int)
+
+		for _, test := range tests {
+			input := test.Input
+			target := test.Target[:len(input)]
+			leftIdx := 0
+			for i := 0; i < len(target); i++ {
+				if target[i] != ' ' {
+					continue
+				}
+
+				if string(input[leftIdx:i]) != string(target[leftIdx:i]) {
+					wordCount[string(target[leftIdx:i])]++
+				}
+
+				i++
+				leftIdx = i
+			}
+
+			if string(input[leftIdx:]) != string(target[leftIdx:]) {
+				wordCount[string(target[leftIdx:])]++
+			}
+		}
+
+		pairs := createWordPairs(wordCount)
+
+		if len(pairs) > 50 {
+			pairs = pairs[:50]
+		}
+
+		words := make([]string, 0, len(pairs))
+
+		for _, pair := range pairs {
+			words = append(words, pair.word)
+		}
+
+		wordList := &WordList{
+			Name: "frequent",
+			Words: words,
+		}
+
+		if err := wordList.Save(); err != nil {
+			return processTestsErr(err)
+		}
+
+		return UpdateWordDb{
+			l: wordList,
+		}
+
 	}
 }
