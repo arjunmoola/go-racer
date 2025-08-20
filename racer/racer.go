@@ -214,7 +214,7 @@ func NewRacerModel() (*RacerModel, error) {
 	game.racer = model
 	model.game = game
 
-	optionNames := []string{ "words", "time", "allow backspace", "mode", "words test size" }
+	optionNames := []string{ "words", "mode", "time", "words test size", "allow backspace" }
 
 	wordBank := make([]string, 0, len(wordDb.wordLists))
 
@@ -230,7 +230,7 @@ func NewRacerModel() (*RacerModel, error) {
 	modeOptions := []string{ "time", "words" }
 	wordsTestSize := []string{ "25", "50", "100" }
 
-	settingOptions := [][]string{ wordBank, times, backspaceOptions, modeOptions, wordsTestSize }
+	settingOptions := [][]string{ wordBank, modeOptions, times, wordsTestSize, backspaceOptions }
 
 	settings := NewGameSettings(optionNames, settingOptions)
 
@@ -244,6 +244,9 @@ func NewRacerModel() (*RacerModel, error) {
 		{ Title: "Id", Width: 10 },
 		{ Title: "Name", Width: 10 },
 		{ Title: "Test Duration", Width: 10 },
+		{ Title: "Mode", Width: 10 },
+		{ Title: "Test Size", Width: 10 },
+		{ Title: "Accuracy", Width: 10 },
 		{ Title: "Words", Width: 10 },
 		{ Title: "Input", Width: 10 },
 	}
@@ -341,6 +344,17 @@ func (r *RacerModel) saveGameStatsAndTest(rq saveGameStatsAndTestRequest) {
 }
 
 type saveFileErr error
+type insertRacerTestErr error
+
+func (r *RacerModel) insertRacerTestCmd(test *RacerTest) tea.Cmd {
+	return func() tea.Msg {
+		if err := InsertRacerTest(r.db, test); err != nil {
+			return insertRacerTestErr(err)
+		}
+
+		return nil
+	}
+}
 
 
 func (r *RacerModel) checkErrorCmd() tea.Cmd {
@@ -496,8 +510,16 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			runes := msg.Runes
 			g.charIdx = g.idx
 			char := byte(runes[0])
-
 			g.appendByte(char)
+
+			if g.target[g.idx] == char {
+				g.numMatches++
+			} else {
+				g.numMisses++
+			}
+
+			g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
+
 			g.incIndex()
 			if len(g.target) == len(g.inputs) {
 				g.finished = true
@@ -515,6 +537,12 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeySpace:
 			g.charIdx = g.idx
 			g.appendByte(' ')
+			if g.target[g.idx] == ' ' {
+				g.numMatches++
+			} else {
+				g.numMisses++
+			}
+			g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
 			g.incIndex()
 			if len(g.target) == len(g.inputs) {
 				g.finished = true
@@ -565,25 +593,28 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if g.finished {
-		r.stats.TotalCompleted++
-		r.stats.LastTestId++
+		//r.stats.TotalCompleted++
+		//r.stats.LastTestId++
 
 		test := &RacerTest{
-			Id: r.stats.LastTestId,
+			Accuracy: g.accuracy*100,
 			Target: g.target,
 			Input: string(g.inputs),
 			Test: g.testName,
 			Time: g.testDuration,
+			Mode: g.mode,
+			TestSize: g.wordsTestSize,
+			AllowBackspace: g.allowBackspace,
 		}
 
-		stats := r.stats.Copy()
+		//stats := r.stats.Copy()
 
-		req := saveGameStatsAndTestRequest{
-			stats: stats,
-			test: test,
-		}
+		//req := saveGameStatsAndTestRequest{
+		//	stats: stats,
+		//	test: test,
+		//}
 
-		return r, tea.Batch(cmd, timerCmd, r.sendSaveRequest(req))
+		return r, tea.Batch(cmd, timerCmd, r.insertRacerTestCmd(test))
 	}
 
 	return r, tea.Batch(cmd, timerCmd)
@@ -663,12 +694,15 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "j":
-			settings.ExitOption()
 			settings.Next()
-			settings.EnterOption()
+			for settings.IsHidden() {
+				settings.Next()
+			}
 		case "k":
-			settings.ExitOption()
 			settings.Prev()
+			for settings.IsHidden() {
+				settings.Prev()
+			}
 			settings.EnterOption()
 		case "h":
 			settings.PrevSettingsOption()
@@ -676,6 +710,21 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			settings.NextSettingsOption()
 		case "enter":
 			settings.SelectSettingsOption()
+			optionName, value := settings.GetCurrentSelectedOptionPair()
+
+			if optionName != "mode" {
+				break
+			}
+
+			switch value {
+			case "time":
+				settings.HideSettingsOption("words test size")
+				settings.UnhideSettingsOption("time")
+			case "words":
+				settings.HideSettingsOption("time")
+				settings.UnhideSettingsOption("words test size")
+			}
+
 		case "s":
 			if settings.showSave {
 				return r, settings.SaveSettings

@@ -23,6 +23,7 @@ type settingsOption struct {
 	name string
 	l *List
 	focus bool
+	hidden bool
 }
 
 func (o *settingsOption) render() string {
@@ -87,6 +88,10 @@ func (s *GameSettings) Next() {
 	}
 }
 
+func (s *GameSettings) IsHidden() bool {
+	return s.options[s.idx].hidden
+}
+
 func (s *GameSettings) Prev() {
 	if s.idx - 1 > -1 {
 		s.options[s.idx].focus = false
@@ -98,7 +103,7 @@ func (s *GameSettings) Prev() {
 func (s *GameSettings) EnterOption() {
 	s.selectedIdx = s.idx
 	s.inFocus = true
-	s.options[s.selectedIdx].focus = true
+	s.options[s.idx].focus = true
 }
 
 func (s *GameSettings) ExitOption() {
@@ -108,15 +113,15 @@ func (s *GameSettings) ExitOption() {
 }
 
 func (s *GameSettings) NextSettingsOption() {
-	s.options[s.selectedIdx].l.Next()
+	s.options[s.idx].l.Next()
 }
 
 func (s *GameSettings) PrevSettingsOption() {
-	s.options[s.selectedIdx].l.Prev()
+	s.options[s.idx].l.Prev()
 }
 
 func (s *GameSettings) SelectSettingsOption() {
-	opt := s.options[s.selectedIdx]
+	opt := s.options[s.idx]
 	currentSelectedValue := opt.l.SelectedValue()
 	opt.l.SetSelection()
 
@@ -127,6 +132,28 @@ func (s *GameSettings) SelectSettingsOption() {
 	s.selectedOptions[opt.name] = opt.l.selectedValue
 
 	s.updateConfig()
+
+}
+
+func (s *GameSettings) GetCurrentSelectedOptionPair() (string, string) {
+	opt := s.options[s.idx]
+	return opt.name, opt.l.SelectedValue()
+}
+
+func (s *GameSettings) HideSettingsOption(optName string) {
+	for _, opt := range s.options {
+		if opt.name == optName {
+			opt.hidden = true
+		}
+	}
+}
+
+func (s *GameSettings) UnhideSettingsOption(optName string) {
+	for _, opt := range s.options {
+		if opt.name == optName {
+			opt.hidden = false
+		}
+	}
 }
 
 func (s *GameSettings) GetSelectedOption(key string) (string, bool) {
@@ -214,6 +241,13 @@ func (s *GameSettings) FromConfig(config *Config) {
 	s.SetSelectedOption("allow backspace", allowBack)
 	s.SetSelectedOption("mode", config.GameMode)
 	s.SetSelectedOption("words test size", strconv.Itoa(config.WordsTestSize))
+
+	switch config.GameMode {
+	case "words":
+		s.HideSettingsOption("time")
+	case "time":
+		s.HideSettingsOption("words test size")
+	}
 }
 
 func (s *GameSettings) resetSaveState() {
@@ -286,6 +320,9 @@ func (s *GameSettings) render() string {
 	builder.WriteRune('\n')
 
 	for _, opt := range s.options {
+		if opt.hidden {
+			continue
+		}
 		builder.WriteString(opt.render())
 		builder.WriteByte('\n')
 	}

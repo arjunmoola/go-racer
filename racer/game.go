@@ -56,6 +56,11 @@ type Game struct {
 	rightIdx int
 	rightLineIdx int
 
+	numMatches int
+	numMisses int
+
+	accuracy float64
+
 	wordIdx int
 	curWord string
 
@@ -142,6 +147,9 @@ func (g *Game) createTest() {
 }
 
 func (g *Game) Reset() {
+	g.numMatches = 0
+	g.numMisses = 0
+	g.accuracy = 0
 	g.inputs = nil
 	g.charIdx = 0
 	g.idx = 0
@@ -249,6 +257,7 @@ func (g *Game) View() string {
 		fmt.Fprintf(builder, "name: %s\n", g.testName)
 		fmt.Fprintf(builder, "mode: %s\n", g.mode)
 		fmt.Fprintf(builder, "time: %d s\n", g.ticks)
+		fmt.Fprintf(builder, "accuracry: %.2f%%\n", g.accuracy*100)
 		builder.WriteRune('\n')
 		fmt.Fprintf(builder, "press esc to go to main menu\n")
 		fmt.Fprintf(builder, "press r to restart\n")
@@ -269,9 +278,10 @@ func (g *Game) View() string {
 		case "words":
 			timeView = timerStyle.Render(fmt.Sprintf("%d", g.ticks))
 		}
-		wpmView := fmt.Sprintf("wpm: %d", g.curWpm)
-		modeView := fmt.Sprintf("mode: %s", g.mode)
-		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, modeView, wpmView))
+		accView := timerStyle.Render(fmt.Sprintf("accuracry: %.2f %%", g.accuracy*100))
+		wpmView := timerStyle.Render(fmt.Sprintf("wpm: %d", g.curWpm))
+		modeView := timerStyle.Render(fmt.Sprintf("mode: %s", g.mode))
+		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, modeView, accView, wpmView))
 
 		//builder.WriteString(g.timer.View())
 		builder.WriteRune('\n')

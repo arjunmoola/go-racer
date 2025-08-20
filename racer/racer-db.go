@@ -32,6 +32,7 @@ const createTestsTableQuery = `
 		test_name VARCHAR,
 		test_duration INTEGER,
 		test_size INTEGER,
+		accuracry DOUBLE,
 		mode VARCHAR,
 		allow_backspace BOOLEAN,
 		target VARCHAR,
@@ -57,9 +58,13 @@ type RacerTestInsertParams struct {
 	testName string
 	testDuration int
 	testSize int
+	accuracry float64
 	mode string
+	allowBackspace bool
 	target string
 	input string
+	wpm int
+	cps int
 }
 
 type GameStatsInsertParams struct {
@@ -83,6 +88,7 @@ type RacerTest struct {
 	Test string
 	Time int
 	TestSize int
+	Accuracy float64
 	Mode string
 	AllowBackspace bool
 	Target string
@@ -237,9 +243,9 @@ func UpdateGameStatsTx(tx *sql.Tx, stats *GameStats) error {
 }
 
 func InsertRacerTest(db *sql.DB, test *RacerTest) error {
-	query := "INSERT INTO all_tests (test_name, test_duration, target, input) VALUES(?, ?, ?, ?)"
+	query := "INSERT INTO all_tests (test_name, test_duration, test_size, accuracy, mode, allow_backspace, target, input, wpm, cps) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
-	_, err := db.Exec(query, test.Test, test.Time, test.Target, test.Input)
+	_, err := db.Exec(query, test.Test, test.Time, test.TestSize, test.Accuracy, test.Mode, test.AllowBackspace, test.Target, test.Input, test.Wpm, test.Cps)
 
 	if err != nil {
 		return err
@@ -249,9 +255,9 @@ func InsertRacerTest(db *sql.DB, test *RacerTest) error {
 }
 
 func InsertRacerTestTx(tx *sql.Tx, test *RacerTest) error {
-	query := "INSERT INTO all_tests (test_name, test_duration, target, input) VALUES(?, ?, ?, ?)"
+	query := "INSERT INTO all_tests (test_name, test_duration, test_size, accuracy, mode, allow_backspace, target, input, wpm, cps) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
-	_, err := tx.Exec(query, test.Test, test.Time, test.Target, test.Input)
+	_, err := tx.Exec(query, test.Test, test.Time, test.TestSize, test.Accuracy, test.Mode, test.AllowBackspace, test.Target, test.Input, test.Wpm, test.Cps)
 
 	if err != nil {
 		return err
@@ -275,7 +281,7 @@ func GetTotalNumberOfTests(db *sql.DB) (int, error) {
 }
 
 func GetAllTests(db *sql.DB) ([]*RacerTest, error) {
-	query := "SELECT id, test_name, test_duration, target, input FROM all_tests ORDER BY id DESC LIMIT 100"
+	query := "SELECT id, test_name, test_duration, test_size, accuracy, mode, target, input FROM all_tests ORDER BY id DESC LIMIT 100"
 
 	rows, err := db.Query(query)
 
@@ -290,7 +296,16 @@ func GetAllTests(db *sql.DB) ([]*RacerTest, error) {
 	for rows.Next() {
 		test := RacerTest{}
 
-		err := rows.Scan(&test.Id, &test.Test, &test.Time, &test.Target, &test.Input)
+		err := rows.Scan(
+			&test.Id,
+			&test.Test,
+			&test.Time,
+			&test.TestSize,
+			&test.Accuracy,
+			&test.Mode,
+			&test.Target,
+			&test.Input,
+		)
 
 		if err != nil {
 			return nil, err
