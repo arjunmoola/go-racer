@@ -25,6 +25,104 @@ var (
 	timerStyle = lipgloss.NewStyle().PaddingRight(3)
 )
 
+type editOp interface {
+	Byte() byte
+	String() string
+	Code() string
+}
+
+type matchOp byte
+
+func (op matchOp) String() string {
+	return fmt.Sprintf("m(%s)", string(op))
+}
+
+func (op matchOp) Byte() byte {
+	return byte(op)
+}
+
+func (op matchOp) Code() string {
+	return "m"
+}
+
+type mismatchOp byte
+
+func (op mismatchOp) String() string {
+	return fmt.Sprintf("s(%s)", string(op))
+}
+
+func (op mismatchOp) Byte() byte {
+	return byte(op)
+}
+
+func (op mismatchOp) Code() string {
+	return "s"
+}
+
+type deleteOp byte
+
+func (op deleteOp) String() string {
+	return fmt.Sprintf("d(%s)", string(op))
+}
+
+func (op deleteOp) Byte() byte {
+	return byte(op)
+}
+
+func (op deleteOp) Code() string {
+	return "d"
+}
+
+type alignment []editOp
+
+func (a alignment) String() string {
+	builder := &strings.Builder{}
+
+	for _, op := range a {
+		builder.WriteString(op.String())
+	}
+
+	return builder.String()
+}
+
+func (a alignment) rle() string {
+	builder := &strings.Builder{}
+
+	if len(a) == 0 {
+		return ""
+	}
+
+	if len(a) == 1 {
+		return a[0].Code()
+	}
+
+	matchLen := 1
+	prevOp := a[0]
+
+	for i := 1; i < len(a); i++ {
+		op := a[i]
+
+		if op.Code() == prevOp.Code() {
+			matchLen++
+		} else {
+			if matchLen == 1 {
+				fmt.Fprintf(builder, "%s", prevOp.Code())
+			} else {
+				fmt.Fprintf(builder, "%d%s", matchLen, prevOp.Code())
+				matchLen = 1
+			}
+		}
+		prevOp = op
+	}
+
+	if matchLen == 1 {
+		fmt.Fprintf(builder, "%s", prevOp.Code())
+	}
+
+	return builder.String()
+}
+
+
 type Game struct {
 	id int
 	testName string
@@ -38,6 +136,7 @@ type Game struct {
 	started bool
 	target string
 	inputs []byte
+	alignment alignment
 	charIdx int
 	idx int
 	timer timer.Model
@@ -58,8 +157,12 @@ type Game struct {
 
 	numMatches int
 	numMisses int
+	numCharsPerSec int
+	charsPerSec []int
+	charBuffer []byte
 
 	accuracy float64
+	accs []float64
 
 	wordIdx int
 	curWord string
@@ -150,6 +253,11 @@ func (g *Game) Reset() {
 	g.numMatches = 0
 	g.numMisses = 0
 	g.accuracy = 0
+	g.numCharsPerSec = 0
+	g.charsPerSec = []int{}
+	g.accs = []float64{}
+	g.charBuffer = []byte{}
+	g.alignment = nil
 	g.inputs = nil
 	g.charIdx = 0
 	g.idx = 0
@@ -217,8 +325,14 @@ func (g *Game) appendByte(char byte) {
 	g.inputs = append(g.inputs, char)
 }
 
-func (g *Game) trimByte() {
+func (g *Game) appendOp(op editOp) {
+	g.alignment = append(g.alignment, op)
+}
+
+func (g *Game) trimByte() byte {
+	b := g.inputs[len(g.inputs)-1]
 	g.inputs = g.inputs[:len(g.inputs)-1]
+	return b
 }
 
 type GameTickMsg struct{
@@ -249,6 +363,18 @@ func (g *Game) stopGame(id int) tea.Cmd {
 	return g.timer.Stop()
 }
 
+func computeCps(nums []int) (total int) {
+	if len(nums) == 0 {
+		return total
+	}
+
+	for _, num := range nums {
+		total += num
+	}
+
+	return total/len(nums)
+}
+
 func (g *Game) View() string {
 	builder := &strings.Builder{}
 
@@ -258,6 +384,10 @@ func (g *Game) View() string {
 		fmt.Fprintf(builder, "mode: %s\n", g.mode)
 		fmt.Fprintf(builder, "time: %d s\n", g.ticks)
 		fmt.Fprintf(builder, "accuracry: %.2f%%\n", g.accuracy*100)
+		fmt.Fprintf(builder, "cps: %d\n", computeCps(g.charsPerSec))
+		fmt.Fprintf(builder, "%v\n", g.charsPerSec)
+		fmt.Fprintf(builder, "%s\n", g.alignment)
+		fmt.Fprintf(builder, "rle: %s\n", g.alignment.rle())
 		builder.WriteRune('\n')
 		fmt.Fprintf(builder, "press esc to go to main menu\n")
 		fmt.Fprintf(builder, "press r to restart\n")
@@ -278,10 +408,24 @@ func (g *Game) View() string {
 		case "words":
 			timeView = timerStyle.Render(fmt.Sprintf("%d", g.ticks))
 		}
-		accView := timerStyle.Render(fmt.Sprintf("accuracry: %.2f %%", g.accuracy*100))
+
+		var acc float64
+
+		if len(g.accs) == 0 {
+			acc = g.accuracy
+		} else {
+			acc = g.accs[len(g.accs)-1]
+		}
+		acc *= 100
+		accView := timerStyle.Render(fmt.Sprintf("accuracry: %.2f %%", acc))
 		wpmView := timerStyle.Render(fmt.Sprintf("wpm: %d", g.curWpm))
 		modeView := timerStyle.Render(fmt.Sprintf("mode: %s", g.mode))
-		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, modeView, accView, wpmView))
+		var cps int
+		if n := len(g.charsPerSec)-1; n >= 1 {
+			cps = g.charsPerSec[n]
+		}
+		cpsView := timerStyle.Render(fmt.Sprintf("cps: %d:", cps))
+		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, modeView, accView, wpmView, cpsView))
 
 		//builder.WriteString(g.timer.View())
 		builder.WriteRune('\n')

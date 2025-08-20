@@ -511,15 +511,16 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			g.charIdx = g.idx
 			char := byte(runes[0])
 			g.appendByte(char)
-
+			g.charBuffer = append(g.charBuffer, char)
 			if g.target[g.idx] == char {
+				g.appendOp(matchOp(char))
 				g.numMatches++
 			} else {
+				g.appendOp(mismatchOp(char))
 				g.numMisses++
 			}
-
+			g.numCharsPerSec++
 			g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
-
 			g.incIndex()
 			if len(g.target) == len(g.inputs) {
 				g.finished = true
@@ -532,16 +533,21 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(g.inputs) == 0 {
 				break
 			}
-			g.trimByte()
+			char := g.trimByte()
+			g.appendOp(deleteOp(char))
 			g.decIndex()
 		case tea.KeySpace:
 			g.charIdx = g.idx
 			g.appendByte(' ')
+			g.charBuffer = append(g.charBuffer, ' ')
 			if g.target[g.idx] == ' ' {
+				g.appendOp(matchOp(' '))
 				g.numMatches++
 			} else {
+				g.appendOp(mismatchOp(' '))
 				g.numMisses++
 			}
+			g.numCharsPerSec++
 			g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
 			g.incIndex()
 			if len(g.target) == len(g.inputs) {
@@ -565,6 +571,9 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if g.started && !g.finished && g.mode == "time" {
 			g.ticks++
+			g.accs = append(g.accs, g.accuracy)
+			g.charsPerSec = append(g.charsPerSec, g.numCharsPerSec)
+			g.numCharsPerSec = 0
 		}
 	case GameTickMsg:
 		if g.mode != "words" {
@@ -582,6 +591,9 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if g.started && !g.finished {
 			g.ticks++
+			g.accs = append(g.accs, g.accuracy)
+			g.charsPerSec = append(g.charsPerSec, g.numCharsPerSec)
+			g.numCharsPerSec = 0
 			return r, g.tickCmd(false, g.id)
 		}
 	}
