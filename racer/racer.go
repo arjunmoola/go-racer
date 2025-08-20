@@ -606,6 +606,16 @@ func (r *RacerModel) updateGame(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//r.stats.TotalCompleted++
 		//r.stats.LastTestId++
 
+		pairs := g.computeMismatchedWords()
+
+		words := make([]string, 0, len(pairs))
+
+		for _, pair := range pairs {
+			words = append(words, pair.word)
+		}
+
+	   	g.missedWords = strings.Join(words, " ")
+
 		test := &RacerTest{
 			Accuracy: g.accuracy*100,
 			Target: g.target,
@@ -727,7 +737,6 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for settings.IsHidden() {
 				settings.Prev()
 			}
-			settings.EnterOption()
 		case "h":
 			settings.PrevSettingsOption()
 		case "l":
@@ -736,8 +745,8 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 			settings.SelectSettingsOption()
 			optionName, value := settings.GetCurrentSelectedOptionPair()
 
-			if optionName != "mode" {
-				break
+			if optionName != "mode" && settings.showSave {
+				return r, settings.SaveSettings
 			}
 
 			switch value {
@@ -749,10 +758,13 @@ func (r *RacerModel) updateGameSettings(msg tea.Msg) (tea.Model, tea.Cmd) {
 				settings.UnhideSettingsOption("words test size")
 			}
 
-		case "s":
 			if settings.showSave {
 				return r, settings.SaveSettings
 			}
+		//case "s":
+		//	if settings.showSave {
+		//		return r, settings.SaveSettings
+		//	}
 		case "esc":
 			settings.saveSuccess = false
 			settings.err = nil

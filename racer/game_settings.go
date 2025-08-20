@@ -344,9 +344,9 @@ func (s *GameSettings) render() string {
 	builder.WriteString("press ctrl+c to exit\n")
 	builder.WriteRune('\n')
 
-	if s.showSave {
-		builder.WriteString("press s to save settings to disk\n")
-	}
+	//if s.showSave {
+	//	builder.WriteString("press s to save settings to disk\n")
+	//}
 
 	if s.saveSuccess {
 		builder.WriteString("settings saved to .go-racer/config.json\n")

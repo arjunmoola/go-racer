@@ -216,11 +216,14 @@ type Game struct {
 	charsPerSec []int
 	charBuffer []byte
 
+	missedWords string
+
 	accuracy float64
 	accs []float64
 
 	wordIdx int
 	curWord string
+
 
 	allowBackspace bool
 	curWpm int
@@ -486,15 +489,12 @@ func (g *Game) View() string {
 		fmt.Fprintf(builder, "time: %d s\n", g.ticks)
 		fmt.Fprintf(builder, "accuracry: %.2f%%\n", g.accuracy*100)
 		fmt.Fprintf(builder, "cps: %d\n", computeCps(g.charsPerSec))
-		pairs := g.computeMismatchedWords()
-		words := make([]string, 0, len(pairs))
-		for _, pair := range pairs {
-			words = append(words, pair.word)
-		}
 		//fmt.Fprintf(builder, "%v\n", g.charsPerSec)
 		//fmt.Fprintf(builder, "%s\n", g.alignment)
 		fmt.Fprintf(builder, "rle: %s\n", g.alignment.rle())
-		fmt.Fprintf(builder, "missed words: %s\n", strings.Join(words, " "))
+		if g.missedWords != "" {
+			fmt.Fprintf(builder, "missed words: %s\n", g.missedWords)
+		}
 		builder.WriteRune('\n')
 		fmt.Fprintf(builder, "press esc to go to main menu\n")
 		fmt.Fprintf(builder, "press r to restart\n")
