@@ -7,14 +7,22 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/timer"
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/lipgloss"
 	"strings"
 	"os"
 	"fmt"
 	"slices"
 	//"golang.org/x/sync/errgroup"
 	"database/sql"
+	"go-racer/models/clock"
 	//"strconv"
 )
+
+var (
+	racerModelTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("200"))
+	leftAlignStyle = lipgloss.NewStyle().AlignHorizontal(lipgloss.Left)
+)
+
 
 type RacerState int
 
@@ -32,11 +40,14 @@ type teaUpdateFunc func(tea.Msg) (tea.Model, tea.Cmd)
 type teaViewFunc func() string
 
 type RacerModel struct {
+	width int
+	height int
 	menu *List
 	state RacerState
 	prevState RacerState
 	stateUpdateFunc map[RacerState]teaUpdateFunc
 	stateViewFunc map[RacerState]teaViewFunc
+	clock clock.Model
 
 	currentUpdateFunc teaUpdateFunc
 	currentViewFunc teaViewFunc
@@ -127,6 +138,7 @@ func readIntroText() ([]string, error) {
 
 func NewRacerModel() (*RacerModel, error) {
 	model := &RacerModel{
+		clock: clock.New(),
 		stateUpdateFunc: make(map[RacerState]teaUpdateFunc),
 		stateViewFunc: make(map[RacerState]teaViewFunc),
 		fileSaver: make(chan any),
@@ -434,8 +446,10 @@ type UpdateWordDb struct {
 }
 
 func (r *RacerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	var pcmd tea.Cmd
+	var batch []tea.Cmd
+	var cmd tea.Cmd
 
+	var pcmd tea.Cmd
 	switch msg :=  msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -456,15 +470,29 @@ func (r *RacerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case UpdateWordDb:
 		r.wordDb.wordLists[msg.l.Name] = msg.l
 		r.settings.appendSettingsOption("words", msg.l.Name)
+	case tea.WindowSizeMsg:
+		r.width, r.height = msg.Width, msg.Height
 	}
 
-	_, cmd := r.currentUpdateFunc(msg)
+	r.clock, cmd = r.clock.Update(msg)
 
-	return r, tea.Batch(cmd, r.checkErrorCmd(), pcmd)
+	batch = append(batch, cmd)
+
+	_, cmd = r.currentUpdateFunc(msg)
+
+	batch = append(batch, cmd)
+	batch = append(batch, r.checkErrorCmd())
+
+	return r, tea.Batch(batch...)
 }
 
 func (r *RacerModel) View() string {
-	return r.currentViewFunc()
+	title := racerModelTitleStyle.Render("Racer")
+	clockView := lipgloss.PlaceHorizontal(r.width/2, lipgloss.Left, r.clock.View())
+	titleView := lipgloss.PlaceHorizontal(r.width/2, lipgloss.Left, title)
+	header := lipgloss.JoinHorizontal(lipgloss.Top, clockView, titleView)
+	cView := lipgloss.Place(r.width, r.height-lipgloss.Height(header), lipgloss.Center, lipgloss.Center, leftAlignStyle.Render(r.currentViewFunc()))
+	return lipgloss.JoinVertical(lipgloss.Center, header, cView)
 }
 
 func (r *RacerModel) registerStateUpdateFunc(state RacerState, updater teaUpdateFunc) {
