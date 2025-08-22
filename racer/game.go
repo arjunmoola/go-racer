@@ -6,6 +6,7 @@ import (
 	"strings"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	//"github.com/charmbracelet/lipgloss/table"
 	"time"
 	"fmt"
 	"strconv"
@@ -20,9 +21,11 @@ var (
 	charMatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#008000"))
 	charMismatchStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
 	highlightStyle = lipgloss.NewStyle().Background(lipgloss.Color("32"))
-	viewStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).Align(lipgloss.Left).Height(3)
+	//viewStyle = lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).Align(lipgloss.Left).Height(3)
+	viewStyle = lipgloss.NewStyle().Align(lipgloss.Left)
 	overlapSpaceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A9A9A9")).Underline(true)
 	timerStyle = lipgloss.NewStyle().PaddingRight(3)
+	lineStyle = lipgloss.NewStyle().PaddingBottom(1)
 )
 
 type editOp interface {
@@ -507,13 +510,20 @@ func (g *Game) View() string {
 		builder.WriteString("press enter to start\n")
 		builder.WriteString("press esc to go to main menu\n")
 	} else {
-		fmt.Fprintf(builder, "name: %s\n", g.testName)
+		//status := table.New().BorderColumn(true).BorderRow(false)
+		//status = status.Headers("test name", "time", "mode", "acc", "wpm", "cps")
+
+		//fmt.Fprintln(builder, status.Render())
+		//fmt.Fprintf(builder, "name: %s\n", g.testName)
+
+		//testName := g.testName
+
 		timeView := ""
 		switch g.mode {
 		case "time":
 			timeView = timerStyle.Render(g.timer.View())
 		case "words":
-			timeView = timerStyle.Render(fmt.Sprintf("%d", g.ticks))
+			timeView = timerStyle.Render(fmt.Sprintf("time: %d", g.ticks))
 		}
 
 		var acc float64
@@ -524,21 +534,13 @@ func (g *Game) View() string {
 			acc = g.accs[len(g.accs)-1]
 		}
 		acc *= 100
-		accView := timerStyle.Render(fmt.Sprintf("accuracry: %.2f %%", acc))
-		wpmView := timerStyle.Render(fmt.Sprintf("wpm: %d", g.curWpm))
-		modeView := timerStyle.Render(fmt.Sprintf("mode: %s", g.mode))
-		var cps int
-		if n := len(g.charsPerSec)-1; n >= 1 {
-			cps = g.charsPerSec[n]
-		}
-		cpsView := timerStyle.Render(fmt.Sprintf("cps: %d:", cps))
-		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, modeView, accView, wpmView, cpsView))
+		accView := timerStyle.Render(fmt.Sprintf("acc: %.2f%%", acc))
 
-		//builder.WriteString(g.timer.View())
+		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, accView))
 		builder.WriteRune('\n')
-
-		s := g.render()
-		builder.WriteString(viewStyle.Render(s))
+		s := viewStyle.Render(g.render2())
+		builder.WriteRune('\n')
+		builder.WriteString(s)
 		builder.WriteRune('\n')
 
 		if g.debug {
@@ -659,4 +661,74 @@ func (g *Game) render() string {
 	}
 
 	return s
+}
+
+
+func (g *Game) render2() string {
+	lineOffsets := g.lineOffsets
+	leftIdx := g.leftIdx
+	rightIdx := g.rightIdx
+	windowIdx := g.curWindow
+
+	lineIdx := windowIdx+1
+	end := g.idx
+
+	var s string
+
+	var lines []string
+	builder := &strings.Builder{}
+
+	for i := leftIdx; i < end; i++ {
+		if g.target[i] == g.inputs[i] {
+			if g.lineOffsets[lineIdx] == i+1 && g.target[i] == ' ' {
+				lines = append(lines, s)
+				s = ""
+				if lineIdx+1 < len(lineOffsets) {
+					lineIdx++
+				}
+			} else{
+				s += charMatchStyle.Render(string(g.inputs[i]))
+			}
+			//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
+		} else if g.inputs[i] == ' ' && g.target[i] != ' ' {
+			s += overlapSpaceStyle.Render(string(g.target[i]))
+		} else {
+			s += charMismatchStyle.Render(string(g.inputs[i]))
+			//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
+		}
+	}
+
+	s += highlightStyle.Render(string(g.target[end]))
+
+	if end == lineOffsets[lineIdx]-1 {
+		lines = append(lines, s)
+		s = ""
+		if lineIdx+1 < len(lineOffsets) {
+			lineIdx++
+		}
+	}
+
+	//builder.WriteString(highlightStyle.Render(string(g.target[end])))
+
+	for i := end+1; i < rightIdx; i++ {
+		if i+1 == lineOffsets[lineIdx] {
+			lines = append(lines, s)
+			s = ""
+			if lineIdx+1 < len(lineOffsets) {
+				lineIdx++
+			}
+		} else {
+			s += string(g.target[i])
+		}
+	}
+
+	if s != "" {
+		lines = append(lines, s)
+	}
+
+	for _, line := range lines {
+		fmt.Fprintln(builder, lineStyle.Render(line))
+	}
+
+	return builder.String()
 }
