@@ -438,7 +438,7 @@ func (r *RacerModel) SetState(state RacerState) {
 }
 
 func (r *RacerModel) Init() tea.Cmd {
-	return r.ProcessTestsCmd()
+	return tea.Batch(r.ProcessTestsCmd(), r.clock.Init())
 }
 
 type UpdateWordDb struct {
