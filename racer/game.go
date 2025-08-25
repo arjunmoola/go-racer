@@ -219,14 +219,12 @@ type Game struct {
 	charsPerSec []int
 	charBuffer []byte
 
+	wordCount int
+	lastWordIdx int
 	missedWords string
 
 	accuracy float64
 	accs []float64
-
-	wordIdx int
-	curWord string
-
 
 	allowBackspace bool
 	curWpm int
@@ -311,6 +309,8 @@ func (g *Game) createTest() {
 }
 
 func (g *Game) Reset() {
+	g.wordCount = 0
+	g.lastWordIdx = 0
 	g.numMatches = 0
 	g.numMisses = 0
 	g.accuracy = 0
@@ -394,6 +394,13 @@ func (g *Game) appendByte(char byte) {
 	}
 	g.accuracy = float64(g.numMatches)/float64(len(g.inputs))
 	g.incIndex()
+
+	wordIdx := strings.LastIndexByte(g.target[:g.idx], ' ')
+	
+	if wordIdx > 0 && wordIdx != g.lastWordIdx {
+		g.wordCount++
+		g.lastWordIdx = wordIdx
+	}
 }
 
 func (g *Game) restart() {
@@ -518,12 +525,15 @@ func (g *Game) View() string {
 
 		//testName := g.testName
 
-		timeView := ""
+		var wordCountView string
+		var timeView string
 		switch g.mode {
 		case "time":
 			timeView = timerStyle.Render(g.timer.View())
+			wordCountView = timerStyle.Render(fmt.Sprintf("count: %d", g.wordCount))
 		case "words":
 			timeView = timerStyle.Render(fmt.Sprintf("time: %d", g.ticks))
+			wordCountView = timerStyle.Render(fmt.Sprintf("count: %d/%d", g.wordCount, g.wordsTestSize))
 		}
 
 		var acc float64
@@ -536,7 +546,7 @@ func (g *Game) View() string {
 		acc *= 100
 		accView := timerStyle.Render(fmt.Sprintf("acc: %.2f%%", acc))
 
-		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, accView))
+		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, accView, wordCountView))
 		builder.WriteRune('\n')
 		s := viewStyle.Render(g.render2())
 		builder.WriteRune('\n')
@@ -556,6 +566,7 @@ func (g *Game) View() string {
 		}
 		//fmt.Fprintf(builder, "lineOffsets: %v\n", renderLineOffsets(g.lineOffsets, g.curLine, g.curWindow, g.windowSize))
 	}
+
 
 	builder.WriteString("\n\n")
 
@@ -607,62 +618,6 @@ func renderLineOffsets(lineOffsets []int, curIndex int, windowIdx int, windowSiz
 
 	return lipgloss.JoinHorizontal(lipgloss.Center, leftStr, windowStr, rightStr)
 }
-
-func (g *Game) render() string {
-	lineOffsets := g.lineOffsets
-	leftIdx := g.leftIdx
-	rightIdx := g.rightIdx
-	windowIdx := g.curWindow
-
-	lineIdx := windowIdx+1
-	end := g.idx
-
-	var s string
-	for i := leftIdx; i < end; i++ {
-		if g.target[i] == g.inputs[i] {
-			if g.lineOffsets[lineIdx] == i+1 && g.target[i] == ' ' {
-				s += charMatchStyle.Render("\n")
-				if lineIdx+1 < len(lineOffsets) {
-					lineIdx++
-				}
-			} else{
-				s += charMatchStyle.Render(string(g.inputs[i]))
-			}
-			//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
-		} else if g.inputs[i] == ' ' && g.target[i] != ' ' {
-			s += overlapSpaceStyle.Render(string(g.target[i]))
-		} else {
-			s += charMismatchStyle.Render(string(g.inputs[i]))
-			//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
-		}
-	}
-
-	s += highlightStyle.Render(string(g.target[end]))
-
-	if end == lineOffsets[lineIdx]-1 {
-		s += "\n"
-		if lineIdx+1 < len(lineOffsets) {
-			lineIdx++
-		}
-	}
-
-	//builder.WriteString(highlightStyle.Render(string(g.target[end])))
-
-	for i := end+1; i < rightIdx; i++ {
-		if i+1 == lineOffsets[lineIdx] {
-			s += "\n"
-			if lineIdx+1 < len(lineOffsets) {
-				lineIdx++
-			}
-		} else {
-			s += string(g.target[i])
-		}
-
-	}
-
-	return s
-}
-
 
 func (g *Game) render2() string {
 	lineOffsets := g.lineOffsets
