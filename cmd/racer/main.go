@@ -1,7 +1,7 @@
 package main
 
 import (
-	"go-racer/racer"
+	"go-racer/internal/racer"
 	"log"
 	"os"
 )

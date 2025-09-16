@@ -14,7 +14,7 @@ import (
 	"slices"
 	//"golang.org/x/sync/errgroup"
 	"database/sql"
-	"go-racer/models/clock"
+	"go-racer/internal/models/clock"
 	//"strconv"
 )
 
@@ -54,7 +54,7 @@ type RacerModel struct {
 
 	game *Game
 	settings *GameSettings
-	config *Config
+	config *Config2
 	stats *GameStats
 
 	wordDb *WordDb
@@ -186,7 +186,7 @@ func NewRacerModel() (*RacerModel, error) {
 	}
 
 	model.wordDb = wordDb
-	model.selectedWordList = wordDb.wordLists[config.Words]
+	model.selectedWordList = wordDb.wordLists[config.TestName]
 
 	stats, err := ReadGameStats()
 

@@ -25,7 +25,8 @@ var (
 	viewStyle = lipgloss.NewStyle().Align(lipgloss.Left)
 	overlapSpaceStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#A9A9A9")).Underline(true)
 	timerStyle = lipgloss.NewStyle().PaddingRight(3)
-	lineStyle = lipgloss.NewStyle().PaddingBottom(1)
+	lineStyle = lipgloss.NewStyle().PaddingBottom(2)
+	defaultTextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#899499"))
 )
 
 type editOp interface {
@@ -180,6 +181,29 @@ func (a alignment) rawString() string {
 	return builder.String()
 }
 
+type gameStyles struct {
+	match lipgloss.Style
+	mismatch lipgloss.Style
+	defaultStyle lipgloss.Style
+	cursor lipgloss.Style
+	line lipgloss.Style
+	timer lipgloss.Style
+	overlapSpace lipgloss.Style
+	view lipgloss.Style
+}
+
+func gameStylesFromConfig(config *Config2) gameStyles {
+	return gameStyles{
+		match: lipgloss.NewStyle().Foreground(lipgloss.Color(config.MatchColor)),
+		mismatch: lipgloss.NewStyle().Foreground(lipgloss.Color(config.MismatchColor)),
+		defaultStyle: lipgloss.NewStyle().Foreground(lipgloss.Color(config.DefaultColor)),
+		cursor: lipgloss.NewStyle().Background(lipgloss.Color(config.CursorColor)),
+		line: lipgloss.NewStyle().PaddingBottom(config.LineSpacing),
+		overlapSpace: lipgloss.NewStyle().Foreground(lipgloss.Color(config.OverlapSpaceColor)).Underline(true),
+		view: lipgloss.NewStyle().Align(lipgloss.Left),
+		timer: lipgloss.NewStyle().PaddingRight(3),
+	}
+}
 
 type Game struct {
 	id int
@@ -187,6 +211,8 @@ type Game struct {
 	testDuration int
 	testSize int
 	wordsTestSize int
+
+	styles gameStyles
 
 	racer *RacerModel
 	mode string
@@ -233,12 +259,14 @@ type Game struct {
 	samples []string
 }
 
-func NewGameFromConfig(config *Config) *Game {
+
+func NewGameFromConfig(config *Config2) *Game {
 	game := &Game{
 		numWordsPerLine: config.NumWordsPerLine,
 		windowSize: config.WindowSize,
 		testSize: config.TestSize,
 		debug: config.Debug,
+		styles: gameStylesFromConfig(config),
 	}
 	return game
 }
@@ -248,8 +276,8 @@ func (g *Game) createTest() {
 	racer := g.racer
 	config := racer.config
 
-	g.testName = config.Words
-	g.testDuration = config.Time
+	g.testName = config.TestName
+	g.testDuration = config.TestDuration
 	g.testSize = config.TestSize
 	g.wordsTestSize = config.WordsTestSize
 	g.allowBackspace = config.AllowBackspace
@@ -530,10 +558,10 @@ func (g *Game) View() string {
 		switch g.mode {
 		case "time":
 			timeView = timerStyle.Render(g.timer.View())
-			wordCountView = timerStyle.Render(fmt.Sprintf("count: %d", g.wordCount))
+			wordCountView = timerStyle.Render(g.styles.defaultStyle.Render(fmt.Sprintf("count: %d", g.wordCount)))
 		case "words":
 			timeView = timerStyle.Render(fmt.Sprintf("time: %d", g.ticks))
-			wordCountView = timerStyle.Render(fmt.Sprintf("count: %d/%d", g.wordCount, g.wordsTestSize))
+			wordCountView = timerStyle.Render(g.styles.defaultStyle.Render(fmt.Sprintf("count: %d/%d", g.wordCount, g.wordsTestSize)))
 		}
 
 		var acc float64
@@ -544,7 +572,7 @@ func (g *Game) View() string {
 			acc = g.accs[len(g.accs)-1]
 		}
 		acc *= 100
-		accView := timerStyle.Render(fmt.Sprintf("acc: %.2f%%", acc))
+		accView := timerStyle.Render(g.styles.defaultStyle.Render(fmt.Sprintf("acc: %.2f%%", acc)))
 
 		builder.WriteString(lipgloss.JoinHorizontal(lipgloss.Center, timeView, accView, wordCountView))
 		builder.WriteRune('\n')
@@ -570,7 +598,7 @@ func (g *Game) View() string {
 
 	builder.WriteString("\n\n")
 
-	builder.WriteString("press ctrl+c to quit\n")
+	builder.WriteString(g.styles.defaultStyle.Render("press ctrl+c to quit\n"))
 	return builder.String()
 }
 
@@ -642,18 +670,22 @@ func (g *Game) render2() string {
 					lineIdx++
 				}
 			} else{
-				s += charMatchStyle.Render(string(g.inputs[i]))
+				//s += charMatchStyle.Render(string(g.inputs[i]))
+				s += g.styles.match.Render(string(g.inputs[i]))
 			}
 			//builder.WriteString(charMatchStyle.Render(string(g.inputs[i])))
 		} else if g.inputs[i] == ' ' && g.target[i] != ' ' {
-			s += overlapSpaceStyle.Render(string(g.target[i]))
+			//s += overlapSpaceStyle.Render(string(g.target[i]))
+			s += g.styles.overlapSpace.Render(string(g.target[i]))
 		} else {
-			s += charMismatchStyle.Render(string(g.inputs[i]))
+			//s += charMismatchStyle.Render(string(g.inputs[i]))
+			s += g.styles.mismatch.Render(string(g.inputs[i]))
 			//builder.WriteString(charMismatchStyle.Render(string(g.inputs[i])))
 		}
 	}
 
-	s += highlightStyle.Render(string(g.target[end]))
+	//s += highlightStyle.Render(string(g.target[end]))
+	s += g.styles.cursor.Render(string(g.target[end]))
 
 	if end == lineOffsets[lineIdx]-1 {
 		lines = append(lines, s)
@@ -673,7 +705,8 @@ func (g *Game) render2() string {
 				lineIdx++
 			}
 		} else {
-			s += string(g.target[i])
+			//s += string(defaultTextStyle.Render(string(g.target[i])))
+			s += g.styles.defaultStyle.Render(string(g.target[i]))
 		}
 	}
 

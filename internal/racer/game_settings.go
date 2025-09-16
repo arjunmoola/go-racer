@@ -1,6 +1,7 @@
 package racer
 
 import (
+	"path/filepath"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"strings"
@@ -167,10 +168,10 @@ func (s *GameSettings) updateConfig() {
 	for optName, value := range s.selectedOptions {
 		switch optName {
 		case "words":
-			config.Words = value
+			config.TestName = value
 		case "time":
 			t, _ := strconv.ParseInt(value, 10, 64)
-			config.Time = int(t)
+			config.TestDuration = int(t)
 		case "allow backspace":
 			config.AllowBackspace = value == "yes"
 		case "mode":
@@ -188,7 +189,7 @@ type clearGameSettingsMsg struct{}
 
 func (s *GameSettings) SaveSettings() tea.Msg {
 	config := s.model.config
-	path := os.ExpandEnv(defaultConfigPath)
+	path := filepath.Join(defaultConfigDir, "config.toml")
 
 	s.updateConfig()
 
@@ -228,10 +229,10 @@ func (s *GameSettings) SetSelectedOption(name, option string) {
 	}
 }
 
-func (s *GameSettings) FromConfig(config *Config) {
-	t := strconv.Itoa(config.Time)
+func (s *GameSettings) FromConfig(config *Config2) {
+	t := strconv.Itoa(config.TestDuration)
 	s.SetSelectedOption("time", t)
-	s.SetSelectedOption("words", config.Words)
+	s.SetSelectedOption("words", config.TestName)
 	var allowBack string
 	if config.AllowBackspace {
 		allowBack = "yes"
