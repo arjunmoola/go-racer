@@ -5,6 +5,7 @@ import (
 	"math/rand/v2"
 	"strings"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 	//"github.com/charmbracelet/lipgloss/table"
 	"time"
@@ -213,6 +214,7 @@ type Game struct {
 	wordsTestSize int
 
 	styles gameStyles
+	width int
 
 	racer *RacerModel
 	mode string
