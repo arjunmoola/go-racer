@@ -1,7 +1,7 @@
 package main
 
 import (
-	"go-racer/internal/racer"
+	"github.com/arjunmoola/go-racer/internal/racer"
 	"log"
 	"os"
 )

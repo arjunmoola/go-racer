@@ -1,4 +1,4 @@
-module go-racer
+module "github.com/arjunmoola/go-racer"
 
 go 1.24.1
 

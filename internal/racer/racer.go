@@ -14,7 +14,7 @@ import (
 	"slices"
 	//"golang.org/x/sync/errgroup"
 	"database/sql"
-	"go-racer/internal/models/clock"
+	"github.com/arjunmoola/go-racer/internal/models/clock"
 	//"strconv"
 )
 
