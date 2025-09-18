@@ -14,6 +14,7 @@ var (
 	ErrWordDirNotFound = errors.New("word dir not setup")
 )
 
+
 type WordList struct {
 	Name string `json:"name"`	
 	NoLazyMode bool `json:"noLazyMode"`

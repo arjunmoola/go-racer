@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"github.com/BurntSushi/toml"
+	"embed"
 )
 
 var (
@@ -316,37 +317,151 @@ func initializeConfigDir() (*Config2, error) {
 	return config, nil
 }
 
+//go:embed data/*.json
+var testDataFiles embed.FS
+
+//go:embed wuxia/intro.txt
+var gameIntroText []byte
+
 func ReadOrCreateConfig() (*Config2, error) {
-	var dirNotFound bool
-	_, err := os.Lstat(defaultConfigDir)
-
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			dirNotFound = true
-		} else {
-			return nil, err
-		}
+	if err := setupConfigDir(); err != nil {
+		return nil, err
 	}
 
-	if dirNotFound {
-		return initializeConfigDir()
+	if err := setupDataDir(); err != nil {
+		return nil, err
 	}
 
-	var testDirNotFound bool
-
-	if _, err := os.Lstat(defaultTestDir); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			testDirNotFound = true
-		} else {
-			return nil, err
-		}
-	}
-
-	if testDirNotFound {
-		if err := os.Mkdir(defaultTestDir, 0777); err != nil {
-			return nil, err
-		}
+	if err := setupWuxiaDir(); err != nil {
+		return nil, err
 	}
 
 	return ReadConfigFile2()
+}
+
+func setupConfigDir() error {
+	dirExists, err := checkIfDirExists(defaultConfigDir)
+
+	if err != nil {
+		return err
+	}
+
+	if dirExists {
+		return nil
+	}
+
+	if err := os.Mkdir(defaultConfigDir, 0777); err != nil {
+		return err
+	}
+
+	config := DefaultConfig2()
+
+	return config.Save()
+}
+
+func setupDataDir() error {
+	dirExists, err := checkIfDirExists(defaultDataDir)
+
+	if err != nil {
+		return err
+	}
+
+	if dirExists {
+		return nil
+	}
+
+	if err := os.Mkdir(defaultDataDir, 0777); err != nil {
+		return err
+	}
+
+	entries, err := testDataFiles.ReadDir("data")
+
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		data, err := testDataFiles.ReadFile(filepath.Join("data", entry.Name()))
+
+		if err != nil {
+			return err
+		}
+
+		path := filepath.Join(defaultDataDir, entry.Name())
+
+		if err := writeTestDataFiles(path, data); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
+func setupWuxiaDir() error {
+	dir := filepath.Join(defaultConfigDir, "wuxia")
+
+	dirExists, err := checkIfDirExists(dir)
+
+	if err != nil {
+		return err
+	}
+
+	if dirExists {
+		return nil
+	}
+
+	if err := os.Mkdir(dir, 0777); err != nil {
+		return err
+	}
+
+	if err := writeIntroTextData(gameIntroText); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func checkIfDirExists(dir string) (bool, error) {
+	if _, err := os.Lstat(dir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		} else {
+			return false, err
+		}
+	}
+
+	return true, nil
+}
+
+
+func writeTestDataFiles(path string, data []byte) error {
+	file, err := os.Create(path)
+
+	if err != nil {
+		return err
+	}
+
+	defer file.Close()
+
+	file.Write(data)
+
+	return nil
+}
+
+func writeIntroTextData(data []byte) error {
+	path := filepath.Join(defaultConfigDir, "wuxia", "intro.txt")
+
+	file, err := os.Create(path)
+
+	if err != nil {
+		return err
+	}
+
+	defer file.Close()
+
+	file.Write(data)
+
+	return nil
 }
